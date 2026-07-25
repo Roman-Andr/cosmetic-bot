@@ -1,6 +1,7 @@
 """Typed runtime configuration loaded from environment variables."""
 
 from functools import lru_cache
+from typing import Literal
 
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -26,6 +27,9 @@ class Settings(BaseSettings):
     owner_telegram_id: int = Field(validation_alias="OWNER_TELEGRAM_ID")
     webhook_secret: SecretStr = Field(validation_alias="WEBHOOK_SECRET")
     loyalty_code_pepper: SecretStr = Field(validation_alias="LOYALTY_CODE_PEPPER")
+    telegram_mode: Literal["webhook", "polling"] = Field(
+        default="webhook", validation_alias="TELEGRAM_MODE"
+    )
 
     google_sheets_credentials_file: str | None = Field(
         default=None,

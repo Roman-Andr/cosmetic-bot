@@ -54,7 +54,20 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     async with SessionLocal() as session:
         await seed_defaults(session, settings)
     sync_task = asyncio.create_task(catalogue_sync_loop(), name="catalogue-sync")
-    await configure_webhook(bot, settings)
+    polling_task: asyncio.Task[None] | None = None
+    if settings.telegram_mode == "webhook":
+        await configure_webhook(bot, settings)
+    else:
+        await bot.delete_webhook(drop_pending_updates=False)
+        polling_task = asyncio.create_task(
+            dispatcher.start_polling(
+                bot,
+                allowed_updates=["message", "callback_query"],
+                handle_signals=False,
+                close_bot_session=False,
+            ),
+            name="telegram-polling",
+        )
     notification_task = asyncio.create_task(
         notification_delivery_loop(bot), name="notification-outbox"
     )
@@ -62,6 +75,10 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         yield
     finally:
         await stop_notification_task(notification_task)
+        if polling_task is not None:
+            polling_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await polling_task
         sync_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await sync_task

@@ -48,6 +48,10 @@ the new system records loyalty purchases in PostgreSQL and offers a customer Min
 The Mini App requires Telegram `initData`; it deliberately does not authenticate
 in a regular browser.
 
+For a local test bot, set `APP_ENV=development` and `TELEGRAM_MODE=polling` in
+your ignored `.env`. Polling never registers a public webhook and is intended
+only for a test token. The production configuration must use `TELEGRAM_MODE=webhook`.
+
 ## Production preparation
 
 No server deployment is performed by this repository or its CI automatically.

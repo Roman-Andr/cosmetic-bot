@@ -48,8 +48,6 @@ services:
     tmpfs: [/tmp]
     security_opt:
       - no-new-privileges:true
-    volumes:
-      - ${GOOGLE_SHEETS_CREDENTIALS_FILE_HOST:-./google-service-account.json}:/run/secrets/google-service-account.json:ro
     networks: [internal]
 
   backend:

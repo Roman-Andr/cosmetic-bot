@@ -18,7 +18,9 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
-support_dialog_status = sa.Enum("open", "closed", name="support_dialog_status")
+support_dialog_status = postgresql.ENUM(
+    "open", "closed", name="support_dialog_status", create_type=False
+)
 
 
 def upgrade() -> None:

@@ -18,10 +18,12 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
-gender = sa.Enum("male", "female", name="gender")
-admin_role = sa.Enum("owner", "sales", name="admin_role")
-purchase_status = sa.Enum("confirmed", name="purchase_status")
-bonus_operation_type = sa.Enum("accrual", "redemption", name="bonus_operation_type")
+gender = postgresql.ENUM("male", "female", name="gender", create_type=False)
+admin_role = postgresql.ENUM("owner", "sales", name="admin_role", create_type=False)
+purchase_status = postgresql.ENUM("confirmed", name="purchase_status", create_type=False)
+bonus_operation_type = postgresql.ENUM(
+    "accrual", "redemption", name="bonus_operation_type", create_type=False
+)
 
 
 def upgrade() -> None:

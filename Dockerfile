@@ -1,18 +1,21 @@
-FROM ghcr.io/astral-sh/uv:0.10.12-python3.14-bookworm AS builder
+FROM python:3.14-slim-bookworm AS builder
 
 WORKDIR /app
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy
 
+COPY --from=ghcr.io/astral-sh/uv:0.10.12 /uv /uvx /bin/
+
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 
 COPY alembic.ini ./
+COPY README.MD ./
 COPY alembic ./alembic
 COPY app ./app
 RUN uv sync --frozen --no-dev
 
-FROM python:3.14-slim
+FROM python:3.14-slim-bookworm
 
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
@@ -23,6 +26,7 @@ WORKDIR /app
 
 COPY --from=builder --chown=app:app /app/.venv /app/.venv
 COPY --from=builder --chown=app:app /app/alembic.ini ./
+COPY --from=builder --chown=app:app /app/README.MD ./
 COPY --from=builder --chown=app:app /app/alembic ./alembic
 COPY --from=builder --chown=app:app /app/app ./app
 
