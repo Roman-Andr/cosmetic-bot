@@ -6,6 +6,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
 
+from app.models import AdminRole, CashbackSource
+
 
 class ProductResponse(BaseModel):
     """Product search result available while recording a purchase."""
@@ -13,6 +15,51 @@ class ProductResponse(BaseModel):
     external_id: str
     title: str
     current_price: Decimal | None
+
+
+class AdminAccessResponse(BaseModel):
+    """The current caller's administrative role, if Telegram authentication succeeds."""
+
+    role: AdminRole
+
+
+class PurchasePreviewRequest(BaseModel):
+    """Sale input collected in the bot or in the administrative Mini App."""
+
+    buyer_code: str = Field(pattern=r"^\d{6}$")
+    total_amount: Decimal = Field(gt=0, max_digits=10, decimal_places=2)
+
+
+class PurchasePreviewResponse(BaseModel):
+    """Privacy-minimised sale preview returned before an irreversible confirmation."""
+
+    customer_name: str
+    customer_phone_masked: str
+    current_balance: Decimal
+    total_amount: Decimal
+    bonus_redeemed: Decimal
+    cash_paid: Decimal
+    cashback_accrued: Decimal
+    cashback_percent: Decimal
+    cashback_source: CashbackSource
+
+
+class PurchaseRecordRequest(PurchasePreviewRequest):
+    """Confirmed sale with an optional set of catalogue product identifiers."""
+
+    product_external_ids: list[str] = Field(default_factory=list, max_length=30)
+
+
+class PurchaseRecordResponse(BaseModel):
+    """The immutable purchase result for the administrative Mini App."""
+
+    purchase_id: UUID
+    bonus_redeemed: Decimal
+    cash_paid: Decimal
+    cashback_accrued: Decimal
+    cashback_percent: Decimal
+    cashback_source: CashbackSource
+    balance_after: Decimal
 
 
 class CustomerSearchResponse(BaseModel):

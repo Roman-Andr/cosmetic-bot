@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import select
@@ -16,6 +17,7 @@ from app.api.dependencies import (
 from app.models import (
     AdminRole,
     AdminUser,
+    BonusTransaction,
     ContactShare,
     Customer,
     LoyaltyAccount,
@@ -23,6 +25,8 @@ from app.models import (
     Purchase,
 )
 from app.schemas.loyalty import (
+    BonusTransactionPageResponse,
+    BonusTransactionResponse,
     CodeResponse,
     ContactStatusResponse,
     FullNameUpdateRequest,
@@ -30,6 +34,7 @@ from app.schemas.loyalty import (
     PurchasePageResponse,
     PurchaseSummaryResponse,
     RegistrationRequest,
+    TierProgressResponse,
     TierResponse,
 )
 from app.services.loyalty import (
@@ -68,6 +73,66 @@ async def current_tier(session: SessionDependency, turnover: object) -> LoyaltyT
     return tier
 
 
+async def tier_progress(
+    session: SessionDependency,
+    turnover: object,
+) -> TierProgressResponse:
+    """Return all active tiers and progress within the current tier's next threshold."""
+    tiers = list(
+        (
+            await session.scalars(
+                select(LoyaltyTierRule)
+                .where(LoyaltyTierRule.is_active.is_(True))
+                .order_by(LoyaltyTierRule.minimum_turnover)
+            )
+        ).all()
+    )
+    turnover_value = Decimal(str(turnover))
+    eligible_indexes = [
+        index for index, tier in enumerate(tiers) if tier.minimum_turnover <= turnover_value
+    ]
+    if not eligible_indexes:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Loyalty programme has no active tiers",
+        )
+    current_index = eligible_indexes[-1]
+    current = tiers[current_index]
+    next_tier = tiers[current_index + 1] if current_index + 1 < len(tiers) else None
+    if next_tier is None:
+        amount_to_next_tier = Decimal("0.00")
+        progress_percent = Decimal("100.00")
+    else:
+        span = next_tier.minimum_turnover - current.minimum_turnover
+        completed = max(Decimal("0.00"), turnover_value - current.minimum_turnover)
+        amount_to_next_tier = max(Decimal("0.00"), next_tier.minimum_turnover - turnover_value)
+        progress_percent = (completed * Decimal("100") / span).quantize(Decimal("0.01"))
+        progress_percent = min(Decimal("100.00"), progress_percent)
+    return TierProgressResponse(
+        current_tier=TierResponse(
+            minimum_turnover=current.minimum_turnover,
+            cashback_percent=current.cashback_percent,
+        ),
+        next_tier=(
+            TierResponse(
+                minimum_turnover=next_tier.minimum_turnover,
+                cashback_percent=next_tier.cashback_percent,
+            )
+            if next_tier is not None
+            else None
+        ),
+        amount_to_next_tier=amount_to_next_tier,
+        progress_percent=progress_percent,
+        tiers=[
+            TierResponse(
+                minimum_turnover=tier.minimum_turnover,
+                cashback_percent=tier.cashback_percent,
+            )
+            for tier in tiers
+        ],
+    )
+
+
 async def profile_response(
     session: SessionDependency,
     customer: Customer,
@@ -81,16 +146,10 @@ async def profile_response(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Account missing"
         )
-    tier = await current_tier(session, account.lifetime_turnover)
-    is_owner = (
-        await session.scalar(
-            select(AdminUser.telegram_user_id).where(
-                AdminUser.telegram_user_id == customer.telegram_user_id,
-                AdminUser.role == AdminRole.OWNER,
-                AdminUser.is_active.is_(True),
-            )
-        )
-    ) is not None
+    progress = await tier_progress(session, account.lifetime_turnover)
+    tier = progress.current_tier
+    admin = await session.get(AdminUser, customer.telegram_user_id)
+    admin_role = admin.role if admin is not None and admin.is_active else None
     return ProfileResponse(
         full_name=customer.full_name,
         phone=customer.phone,
@@ -110,7 +169,9 @@ async def profile_response(
         ),
         birthday_cashback_percent=settings.birthday_cashback_percent,
         birthday_cashback_window_days=settings.birthday_cashback_window_days,
-        is_owner=is_owner,
+        is_owner=admin_role is AdminRole.OWNER,
+        admin_role=admin_role,
+        tier_progress=progress,
     )
 
 
@@ -241,4 +302,37 @@ async def get_purchases(
     return PurchasePageResponse(
         items=[PurchaseSummaryResponse.model_validate(item) for item in purchases[:limit]],
         next_offset=next_offset,
+    )
+
+
+@router.get("/transactions", response_model=BonusTransactionPageResponse)
+async def get_bonus_transactions(
+    session: SessionDependency,
+    customer: CustomerDependency,
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=20, ge=1, le=50),
+) -> BonusTransactionPageResponse:
+    """Show the customer every immutable accrual and redemption behind the balance."""
+    account_id = await session.scalar(
+        select(LoyaltyAccount.id).where(LoyaltyAccount.customer_id == customer.id)
+    )
+    if account_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Account missing",
+        )
+    transactions = list(
+        (
+            await session.scalars(
+                select(BonusTransaction)
+                .where(BonusTransaction.account_id == account_id)
+                .order_by(BonusTransaction.created_at.desc())
+                .offset(offset)
+                .limit(limit + 1)
+            )
+        ).all()
+    )
+    return BonusTransactionPageResponse(
+        items=[BonusTransactionResponse.model_validate(item) for item in transactions[:limit]],
+        next_offset=offset + limit if len(transactions) > limit else None,
     )

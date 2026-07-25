@@ -5,13 +5,22 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
+from io import BytesIO
 from uuid import UUID
 
 from aiogram import Bot, F, Router
 from aiogram.filters import Command, CommandObject, CommandStart, StateFilter
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.types import (
+    BufferedInputFile,
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+)
+from openpyxl import Workbook
 from sqlalchemy import delete, func, select
+from sqlalchemy.orm import selectinload
 
 from app.bot.keyboards import (
     customer_menu,
@@ -32,6 +41,7 @@ from app.models import (
     ContactShare,
     Customer,
     LoyaltyAccount,
+    LoyaltyCode,
     LoyaltyTierRule,
     Product,
     Purchase,
@@ -165,6 +175,17 @@ async def open_loyalty(message: Message) -> None:
     """Open the Mini App from a standard bot menu action."""
     await message.answer(
         "Ваш баланс, история покупок и регистрация доступны в Mini App.",
+        reply_markup=loyalty_web_app_keyboard(settings.public_base_url),
+    )
+
+
+@router.message(Command("work"))
+async def open_sales_workplace(message: Message) -> None:
+    """Give sales users a direct, role-checked entry point to their Mini App workspace."""
+    if not await require_sales(message):
+        return
+    await message.answer(
+        "Откройте рабочий кабинет для оформления покупки.",
         reply_markup=loyalty_web_app_keyboard(settings.public_base_url),
     )
 
@@ -445,7 +466,30 @@ async def owner_panel(message: Message) -> None:
     if not await require_owner_message(message):
         return
     await message.answer(
-        "Панель главного администратора", reply_markup=owner_menu(settings.public_base_url)
+        "Панель главного администратора\n\n"
+        "Команды: /stats, /find, /admins, /addsales, /tiers, "
+        "/exportcustomers, /exportpurchases",
+        reply_markup=owner_menu(settings.public_base_url),
+    )
+
+
+async def owner_stats_text() -> str:
+    """Build one all-time snapshot for both the bot button and the /stats command."""
+    async with SessionLocal() as session:
+        registrations = await session.scalar(select(func.count(Customer.id)))
+        purchase_count = await session.scalar(select(func.count(Purchase.id)))
+        turnover = await session.scalar(
+            select(func.coalesce(func.sum(LoyaltyAccount.lifetime_turnover), 0))
+        )
+        liability = await session.scalar(
+            select(func.coalesce(func.sum(LoyaltyAccount.current_balance), 0))
+        )
+    return (
+        "Статистика за всё время:\n"
+        f"Клиентов: {registrations or 0}\n"
+        f"Покупок: {purchase_count or 0}\n"
+        f"Оборот: {turnover or 0} BYN\n"
+        f"Бонусные обязательства: {liability or 0} BYN"
     )
 
 
@@ -458,24 +502,168 @@ async def owner_stats(callback: CallbackQuery) -> None:
     ):
         await callback.answer("Недостаточно прав", show_alert=True)
         return
-    async with SessionLocal() as session:
-        registrations = await session.scalar(select(func.count(Customer.id)))
-        purchase_count = await session.scalar(select(func.count(Purchase.id)))
-        turnover = await session.scalar(
-            select(func.coalesce(func.sum(LoyaltyAccount.lifetime_turnover), 0))
-        )
-        liability = await session.scalar(
-            select(func.coalesce(func.sum(LoyaltyAccount.current_balance), 0))
-        )
     await callback.answer()
     if callback.message:
-        await callback.message.answer(
-            "Статистика за всё время:\n"
-            f"Клиентов: {registrations or 0}\n"
-            f"Покупок: {purchase_count or 0}\n"
-            f"Оборот: {turnover or 0} BYN\n"
-            f"Бонусные обязательства: {liability or 0} BYN"
+        await callback.message.answer(await owner_stats_text())
+
+
+@router.message(Command("stats"))
+async def owner_stats_command(message: Message) -> None:
+    """Expose the owner dashboard summary directly as a discoverable command."""
+    if not await require_owner_message(message):
+        return
+    await message.answer(await owner_stats_text())
+
+
+@router.message(Command("admins"))
+async def owner_administrators_command(message: Message) -> None:
+    """List the current owner and sales accounts without requiring the Mini App."""
+    if not await require_owner_message(message):
+        return
+    async with SessionLocal() as session:
+        administrators = list(
+            (await session.scalars(select(AdminUser).order_by(AdminUser.created_at))).all()
         )
+    if not administrators:
+        await message.answer("Администраторы пока не добавлены.")
+        return
+    lines = [
+        f"• <code>{admin.telegram_user_id}</code> — "
+        f"{'главный' if admin.role is AdminRole.OWNER else 'продажи'}"
+        for admin in administrators
+        if admin.is_active
+    ]
+    await message.answer("Администраторы:\n" + "\n".join(lines), parse_mode="HTML")
+
+
+@router.message(Command("find"))
+async def owner_find_customer_command(message: Message, command: CommandObject) -> None:
+    """Find loyalty customers by name, phone, or an active six-digit code in the bot."""
+    if not await require_owner_message(message):
+        return
+    query = (command.args or "").strip()
+    if len(query) < 2:
+        await message.answer(
+            "Используйте: <code>/find ФИО, телефон или код</code>",
+            parse_mode="HTML",
+        )
+        return
+    condition = Customer.full_name.ilike(f"%{query}%") | Customer.phone.ilike(f"%{query}%")
+    async with SessionLocal() as session:
+        rows = list(
+            (
+                await session.execute(
+                    select(Customer, LoyaltyAccount)
+                    .join(LoyaltyAccount, LoyaltyAccount.customer_id == Customer.id)
+                    .where(condition)
+                    .order_by(Customer.full_name)
+                    .limit(20)
+                )
+            ).all()
+        )
+        if query.isdigit() and len(query) == 6:
+            from app.services.loyalty import code_digest
+
+            code = await session.scalar(
+                select(LoyaltyCode)
+                .where(LoyaltyCode.code_digest == code_digest(query, settings.loyalty_code_pepper))
+                .limit(1)
+            )
+            if code is not None:
+                row = await session.execute(
+                    select(Customer, LoyaltyAccount)
+                    .join(LoyaltyAccount, LoyaltyAccount.customer_id == Customer.id)
+                    .where(LoyaltyAccount.id == code.account_id)
+                )
+                found = row.one_or_none()
+                rows = [found] if found is not None else rows
+    if not rows:
+        await message.answer("Клиенты не найдены.")
+        return
+    lines = [
+        f"• {customer.full_name} — {customer.phone}\n"
+        f"  Баланс: {account.current_balance} BYN · Оборот: {account.lifetime_turnover} BYN"
+        for customer, account in rows
+    ]
+    await message.answer("Результаты поиска:\n" + "\n".join(lines))
+
+
+@router.message(Command("exportcustomers"))
+async def owner_export_customers_command(message: Message) -> None:
+    """Send the owner the same customer XLSX export available in the Mini App."""
+    if not await require_owner_message(message):
+        return
+    async with SessionLocal() as session:
+        rows = list(
+            (
+                await session.execute(
+                    select(Customer, LoyaltyAccount)
+                    .join(LoyaltyAccount, LoyaltyAccount.customer_id == Customer.id)
+                    .order_by(Customer.created_at.desc())
+                )
+            ).all()
+        )
+    workbook = Workbook(write_only=True)
+    sheet = workbook.create_sheet("Клиенты")
+    sheet.append(["ФИО", "Телефон", "Дата регистрации", "Баланс", "Оборот"])
+    for customer, account in rows:
+        sheet.append(
+            [
+                customer.full_name,
+                customer.phone,
+                customer.created_at.isoformat(),
+                account.current_balance,
+                account.lifetime_turnover,
+            ]
+        )
+    output = BytesIO()
+    workbook.save(output)
+    await message.answer_document(
+        BufferedInputFile(output.getvalue(), filename="customers.xlsx"),
+        caption="Выгрузка клиентов",
+    )
+
+
+@router.message(Command("exportpurchases"))
+async def owner_export_purchases_command(message: Message) -> None:
+    """Send the owner the same immutable purchase report available in the Mini App."""
+    if not await require_owner_message(message):
+        return
+    async with SessionLocal() as session:
+        rows = list(
+            (
+                await session.execute(
+                    select(Purchase, Customer)
+                    .join(Customer, Customer.id == Purchase.customer_id)
+                    .options(selectinload(Purchase.items))
+                    .order_by(Purchase.created_at.desc())
+                )
+            )
+            .unique()
+            .all()
+        )
+    workbook = Workbook(write_only=True)
+    sheet = workbook.create_sheet("Покупки")
+    sheet.append(["Дата", "Клиент", "Сумма", "Списано", "Начислено", "Кешбэк", "Товары"])
+    for purchase, customer in rows:
+        source = "День рождения" if purchase.cashback_source.value == "birthday" else "Уровень"
+        sheet.append(
+            [
+                purchase.created_at.isoformat(),
+                customer.full_name,
+                purchase.total_amount,
+                purchase.bonus_redeemed,
+                purchase.cashback_accrued,
+                f"{source} · {purchase.cashback_percent}%",
+                ", ".join(item.title_snapshot for item in purchase.items),
+            ]
+        )
+    output = BytesIO()
+    workbook.save(output)
+    await message.answer_document(
+        BufferedInputFile(output.getvalue(), filename="purchases.xlsx"),
+        caption="Выгрузка покупок",
+    )
 
 
 @router.callback_query(F.data == "owner:add-sales")

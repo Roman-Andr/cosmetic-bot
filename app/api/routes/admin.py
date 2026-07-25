@@ -32,16 +32,28 @@ from app.models import (
 )
 from app.schemas.admin import (
     AddSalesAdminRequest,
+    AdminAccessResponse,
     AdminStatsResponse,
     AdminUserResponse,
     CustomerDetailResponse,
     CustomerSearchResponse,
     ProductResponse,
+    PurchasePreviewRequest,
+    PurchasePreviewResponse,
+    PurchaseRecordRequest,
+    PurchaseRecordResponse,
     TierRuleResponse,
     TierRulesUpdateRequest,
 )
 from app.schemas.loyalty import PurchasePageResponse, PurchaseSummaryResponse
-from app.services.loyalty import code_digest
+from app.services.loyalty import (
+    InvalidCodeError,
+    LoyaltyError,
+    LoyaltyService,
+    ProductNotFoundError,
+    ProductSelection,
+    code_digest,
+)
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -56,6 +68,19 @@ def as_utc_boundary(value: date | None, *, end: bool) -> datetime | None:
 def money_or_zero(value: Decimal | None) -> Decimal:
     """Normalise aggregate NULL values for API and XLSX output."""
     return value or Decimal("0.00")
+
+
+def mask_phone(phone: str) -> str:
+    """Show sales staff only enough digits to identify a customer at the till."""
+    if len(phone) <= 5:
+        return phone
+    return f"{phone[:4]}{'*' * max(1, len(phone) - 6)}{phone[-2:]}"
+
+
+@router.get("/access", response_model=AdminAccessResponse)
+async def get_admin_access(admin: SalesAdminDependency) -> AdminAccessResponse:
+    """Allow an administrator without a loyalty profile to open the work Mini App."""
+    return AdminAccessResponse(role=admin.role)
 
 
 @router.get("/products", response_model=list[ProductResponse])
@@ -89,6 +114,86 @@ async def search_products(
         )
         for product in products
     ]
+
+
+@router.post("/purchases/preview", response_model=PurchasePreviewResponse)
+async def preview_purchase(
+    payload: PurchasePreviewRequest,
+    session: SessionDependency,
+    settings: SettingsDependency,
+    _: SalesAdminDependency,
+) -> PurchasePreviewResponse:
+    """Use the same transactional calculation as the bot before confirming a sale."""
+    try:
+        preview = await LoyaltyService(settings).preview_purchase(
+            session,
+            buyer_code=payload.buyer_code,
+            total_amount=payload.total_amount,
+        )
+    except InvalidCodeError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except LoyaltyError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+    return PurchasePreviewResponse(
+        customer_name=preview.customer_name,
+        customer_phone_masked=mask_phone(preview.customer_phone),
+        current_balance=preview.current_balance,
+        total_amount=preview.total_amount,
+        bonus_redeemed=preview.redeemed,
+        cash_paid=preview.cash_paid,
+        cashback_accrued=preview.accrued,
+        cashback_percent=preview.cashback_percent,
+        cashback_source=preview.cashback_source,
+    )
+
+
+@router.post(
+    "/purchases",
+    response_model=PurchaseRecordResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def record_purchase(
+    payload: PurchaseRecordRequest,
+    session: SessionDependency,
+    settings: SettingsDependency,
+    admin: SalesAdminDependency,
+) -> PurchaseRecordResponse:
+    """Confirm a Mini App sale with the same service used by the bot FSM."""
+    try:
+        result = await LoyaltyService(settings).record_purchase(
+            session,
+            buyer_code=payload.buyer_code,
+            recorded_by_telegram_id=admin.telegram_user_id,
+            total_amount=payload.total_amount,
+            selected_products=[
+                ProductSelection(external_id=external_id)
+                for external_id in dict.fromkeys(payload.product_external_ids)
+            ],
+        )
+    except InvalidCodeError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except ProductNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+    except LoyaltyError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+    return PurchaseRecordResponse(
+        purchase_id=result.purchase.id,
+        bonus_redeemed=result.redeemed,
+        cash_paid=result.purchase.cash_paid,
+        cashback_accrued=result.accrued,
+        cashback_percent=result.cashback_percent,
+        cashback_source=result.cashback_source,
+        balance_after=result.balance_after,
+    )
 
 
 @router.get("/customers/search", response_model=list[CustomerSearchResponse])

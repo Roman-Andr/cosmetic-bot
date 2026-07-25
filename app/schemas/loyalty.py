@@ -6,7 +6,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.models import CashbackSource, Gender
+from app.models import AdminRole, BonusOperationType, CashbackSource, Gender
 
 
 class RegistrationRequest(BaseModel):
@@ -37,6 +37,16 @@ class TierResponse(BaseModel):
     cashback_percent: Decimal
 
 
+class TierProgressResponse(BaseModel):
+    """Gamification data for the customer's current and next lifetime-turnover tier."""
+
+    current_tier: TierResponse
+    next_tier: TierResponse | None
+    amount_to_next_tier: Decimal
+    progress_percent: Decimal
+    tiers: list[TierResponse]
+
+
 class PurchaseSummaryResponse(BaseModel):
     """Customer-visible purchase history row."""
 
@@ -49,6 +59,19 @@ class PurchaseSummaryResponse(BaseModel):
     cashback_percent: Decimal
     cashback_source: CashbackSource
     cashback_accrued: Decimal
+
+
+class BonusTransactionResponse(BaseModel):
+    """One immutable balance movement visible to the loyalty customer."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    created_at: datetime
+    operation_type: BonusOperationType
+    amount: Decimal
+    balance_after: Decimal
+    purchase_id: UUID | None
 
 
 class ProfileResponse(BaseModel):
@@ -66,6 +89,8 @@ class ProfileResponse(BaseModel):
     birthday_cashback_percent: Decimal
     birthday_cashback_window_days: int
     is_owner: bool
+    admin_role: AdminRole | None
+    tier_progress: TierProgressResponse
 
 
 class ContactStatusResponse(BaseModel):
@@ -85,4 +110,11 @@ class PurchasePageResponse(BaseModel):
     """Paginated customer purchase history."""
 
     items: list[PurchaseSummaryResponse]
+    next_offset: int | None
+
+
+class BonusTransactionPageResponse(BaseModel):
+    """Paginated ledger entries with no hidden balance adjustment paths."""
+
+    items: list[BonusTransactionResponse]
     next_offset: int | None

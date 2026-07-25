@@ -16,6 +16,11 @@ the new system records loyalty purchases in PostgreSQL and offers a customer Min
 - immutable purchase and bonus ledger, optional multi-product catalogue selection,
   reliable customer notifications through an outbox;
 - owner/sales roles, owner search, XLSX exports, dashboard statistics and audit log;
+- sales workspace in the Mini App and `/sale` in the bot use the same purchase
+  preview and confirmation service; owner configuration is available in both
+  the Mini App and bot commands (`/stats`, `/find`, `/admins`, `/addsales`,
+  `/tiers`, `/exportcustomers`, `/exportpurchases`);
+- customer-visible immutable bonus ledger and tier-progress data for the Mini App;
 - Google Sheets catalogue synchronization, support-chat block/unblock controls;
 - FastAPI API, React/Vite Telegram Mini App, PostgreSQL, Redis, Caddy HTTPS,
   daily backup configuration with 180-day retention.
