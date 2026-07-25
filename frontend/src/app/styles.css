@@ -87,8 +87,7 @@ a { color: #087244; font-weight: 800; }
 .balance-meta b { margin-left: 3px; color: #fff; }
 
 .money { display: inline-flex; align-items: baseline; gap: .22em; white-space: nowrap; }
-.currency-symbol { width: .8em; height: .8em; flex: 0 0 auto; object-fit: contain; }
-.balance-card .currency-symbol { filter: brightness(0) invert(1); }
+.currency-symbol { display: inline-block; width: .8em; height: .8em; flex: 0 0 auto; background: currentcolor; mask: url("/byn-symbol.svg") center / contain no-repeat; -webkit-mask: url("/byn-symbol.svg") center / contain no-repeat; }
 .input-suffix .currency-symbol, .tier-row em .currency-symbol { width: 11px; height: 11px; opacity: .72; }
 
 .tier-progress-card { padding: 19px; background: linear-gradient(137deg, #fff, #f0fbf1); }

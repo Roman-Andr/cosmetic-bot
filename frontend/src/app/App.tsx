@@ -66,11 +66,11 @@ export default function App() {
     </header>
     {notice && <button type="button" className="notice" role="alert" onClick={() => setNotice(null)}><span>{notice}</span><Icon name="close" size={18} /></button>}
     {profile ? <>
-      <nav className="section-grid" aria-label="Разделы кабинета">
+      {canSell && <nav className="section-grid" aria-label="Разделы кабинета">
         <SectionTile active={tab === "profile"} icon="account" title="Мой профиль" subtitle="Баланс и код" onClick={() => setTab("profile")} />
-        {canSell && <SectionTile active={tab === "sale"} icon="sale" title="Оформить" subtitle="Покупка клиента" badge="SALE" onClick={() => setTab("sale")} />}
+        <SectionTile active={tab === "sale"} icon="sale" title="Оформить" subtitle="Покупка клиента" badge="SALE" onClick={() => setTab("sale")} />
         {isOwner && <SectionTile active={tab === "admin"} icon="shield" title="Управление" subtitle="Программа и команда" badge="OWNER" onClick={() => setTab("admin")} />}
-      </nav>
+      </nav>}
       <div className="tab-content">
         {tab === "profile" && <ProfilePanel profile={profile} onProfile={setProfile} onNotice={setNotice} />}
         {tab === "sale" && canSell && <SaleWorkspace onNotice={setNotice} />}

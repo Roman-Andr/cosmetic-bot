@@ -1,7 +1,7 @@
 import { formatAmount } from "../lib/format";
 
 export function CurrencySymbol({ className = "" }: { className?: string }) {
-  return <img className={`currency-symbol ${className}`.trim()} src="/byn-symbol.svg" alt="" aria-hidden="true" />;
+  return <span className={`currency-symbol ${className}`.trim()} aria-hidden="true" />;
 }
 
 export function Money({ value, prefix = "", className = "" }: { value: string | number; prefix?: string; className?: string }) {
