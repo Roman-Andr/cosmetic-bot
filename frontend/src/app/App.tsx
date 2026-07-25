@@ -10,9 +10,8 @@ import { Icon } from "../shared/ui/Icon";
 import { SectionTile } from "../shared/ui/SectionTile";
 import { OwnerDashboard } from "../widgets/admin/ui/OwnerDashboard";
 import { ProfilePanel } from "../widgets/profile/ui/ProfilePanel";
-import { PurchasesPanel } from "../widgets/purchases/ui/PurchasesPanel";
 
-type Tab = "profile" | "purchases" | "sale" | "admin";
+type Tab = "profile" | "sale" | "admin";
 
 export default function App() {
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -69,13 +68,11 @@ export default function App() {
     {profile ? <>
       <nav className="section-grid" aria-label="Разделы кабинета">
         <SectionTile active={tab === "profile"} icon="account" title="Мой профиль" subtitle="Баланс и код" onClick={() => setTab("profile")} />
-        <SectionTile active={tab === "purchases"} icon="bag" title="Покупки" subtitle="История заказов" onClick={() => setTab("purchases")} />
         {canSell && <SectionTile active={tab === "sale"} icon="sale" title="Оформить" subtitle="Покупка клиента" badge="SALE" onClick={() => setTab("sale")} />}
         {isOwner && <SectionTile active={tab === "admin"} icon="shield" title="Управление" subtitle="Программа и команда" badge="OWNER" onClick={() => setTab("admin")} />}
       </nav>
       <div className="tab-content">
         {tab === "profile" && <ProfilePanel profile={profile} onProfile={setProfile} onNotice={setNotice} />}
-        {tab === "purchases" && <PurchasesPanel onNotice={setNotice} />}
         {tab === "sale" && canSell && <SaleWorkspace onNotice={setNotice} />}
         {tab === "admin" && isOwner && <OwnerDashboard onNotice={setNotice} />}
       </div>
