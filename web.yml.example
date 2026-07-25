@@ -1,0 +1,4 @@
+# Copy this file to web.yml and replace the placeholder with a bcrypt hash.
+# The real web.yml is local-only because it contains Prometheus credentials.
+basic_auth_users:
+  admin: "<bcrypt-password-hash>"

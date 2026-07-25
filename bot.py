@@ -7,28 +7,42 @@ from pathlib import Path
 import gspread
 from aiogram import Bot, Dispatcher
 from aiogram.filters import Command
-from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+from aiogram.types import (
+    Message,
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
+    CallbackQuery,
+)
+from aiogram.client.session.aiohttp import AiohttpSession
 from prometheus_client import start_http_server, Counter, Gauge
 
-from config import API_TOKEN, ADMIN_ID, GOOGLE_SHEET_NAME, GOOGLE_SHEETS_CREDENTIALS_FILE
+from config import (
+    API_TOKEN,
+    ADMIN_ID,
+    GOOGLE_SHEET_NAME,
+    GOOGLE_SHEETS_CREDENTIALS_FILE,
+)
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[
-        TimedRotatingFileHandler("bot.log", when="midnight", interval=1, backupCount=31),
-        logging.StreamHandler()
-    ]
+        TimedRotatingFileHandler(
+            "bot.log", when="midnight", interval=1, backupCount=31
+        ),
+        logging.StreamHandler(),
+    ],
 )
 logger = logging.getLogger(__name__)
 
 # Metrics
-REQUESTS = Counter('bot_requests_total', 'Total number of requests')
-ACTIVE_DIALOGS = Gauge('bot_active_dialogs', 'Number of active dialogs')
-BLOCKED_USERS = Gauge('bot_blocked_users', 'Number of blocked users')
+REQUESTS = Counter("bot_requests_total", "Total number of requests")
+ACTIVE_DIALOGS = Gauge("bot_active_dialogs", "Number of active dialogs")
+BLOCKED_USERS = Gauge("bot_blocked_users", "Number of blocked users")
 
 # Bot and dispatcher initialization
-bot = Bot(token=API_TOKEN)
+session = AiohttpSession(proxy="socks5://127.0.0.1:1080")
+bot = Bot(token=API_TOKEN, session=session)
 dp = Dispatcher()
 
 # Constants for data files
@@ -72,7 +86,12 @@ def load_data():
                 return json.load(f)
         except Exception as e:
             logger.error(f"Error loading data from {DATA_FILE}: {e}")
-    return {"active_dialogs": {}, "blocked_users": [], "dialog_messages": {}}
+    return {
+        "total_requests": 0,
+        "active_dialogs": {},
+        "blocked_users": [],
+        "dialog_messages": {},
+    }
 
 
 def save_data(data):
@@ -91,7 +110,7 @@ def get_active_dialogs():
 
 def get_blocked_users():
     """Get set of blocked users."""
-    return set(load_data()["blocked_users"])
+    return set(load_data().get("blocked_users", {}))
 
 
 def get_dialog_messages(user_id):
@@ -166,6 +185,9 @@ def remove_dialog_messages(user_id):
 async def start(message: Message):
     """Handle /start command and show product info."""
     REQUESTS.inc()
+    data = load_data()
+    data["total_requests"] += 1
+    save_data(data)
 
     args = message.text.split(" ")
     product_id = args[1] if len(args) > 1 else None
@@ -181,16 +203,25 @@ async def start(message: Message):
 
     greeting = "Приветствуем вас! Спасибо за ваш интерес!"
     product_name = product["Title"]
-    product_price = f"Стоимость: {product["Price"]}"
+    product_price = f"Стоимость: {product['Price']}"
     text = f"{greeting}\n\n{product_name}\n\n{product_price}\n\nХотите оформить заказ?"
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Добавить в корзину", url=product["Url"])],
-        [InlineKeyboardButton(text="Нужна помощь", callback_data=f"need_help_{product_id}")]
-    ])
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Добавить в корзину", url=product["Url"])],
+            [
+                InlineKeyboardButton(
+                    text="Нужна помощь", callback_data=f"need_help_{product_id}"
+                )
+            ],
+        ]
+    )
     photo_url = product["Photo"]
-    await message.answer_photo(photo_url, caption=text, reply_markup=keyboard, parse_mode="HTML")
+    await message.answer_photo(
+        photo_url, caption=text, reply_markup=keyboard, parse_mode="HTML"
+    )
     logger.info(
-        f"Showed product {product_name} to user ID: {message.from_user.id}, Name: {message.from_user.full_name}")
+        f"Showed product {product_name} to user ID: {message.from_user.id}, Name: {message.from_user.full_name}"
+    )
 
 
 @dp.callback_query(lambda c: c.data.startswith("need_help_"))
@@ -201,7 +232,9 @@ async def need_help(callback_query: CallbackQuery):
     product_id = callback_query.data.replace("need_help_", "")
 
     if user_id in get_blocked_users() or user_id == ADMIN_ID:
-        logger.warning(f"User {user_name} ({user_id}) tried to request help but was blocked or already in a dialog.")
+        logger.warning(
+            f"User {user_name} ({user_id}) tried to request help but was blocked or already in a dialog."
+        )
         return
 
     await callback_query.answer("Задавайте свои вопросы.")
@@ -210,39 +243,67 @@ async def need_help(callback_query: CallbackQuery):
     if user_id != ADMIN_ID:
         add_active_dialog(user_id, product_id)
 
-    logger.info(f"User {user_name} ({user_id}) requested help. Product ID: {product_id}")
+    logger.info(
+        f"User {user_name} ({user_id}) requested help. Product ID: {product_id}"
+    )
 
 
-@dp.message(lambda message: str(message.from_user.id) in get_active_dialogs().keys() and (
-        message.photo or not message.text.startswith("/")))
+@dp.message(
+    lambda message: (
+        str(message.from_user.id) in get_active_dialogs().keys()
+        and (message.photo or not message.text.startswith("/"))
+    )
+)
 async def forward_to_admin(message: Message):
     """Forward user message (text, photo, document, etc.) to admin."""
     user_id = message.from_user.id
     user_name = message.from_user.full_name
     active_dialogs = get_active_dialogs()
-    product_id = active_dialogs.get(str(user_id), "Неизвестно")  # Получаем product_id, если есть
+    product_id = active_dialogs.get(
+        str(user_id), "Неизвестно"
+    )  # Получаем product_id, если есть
 
     if user_id in get_blocked_users():
-        logger.warning(f"User ID: {user_id}, Name: {user_name} tried to send a message but was blocked.")
+        logger.warning(
+            f"User ID: {user_id}, Name: {user_name} tried to send a message but was blocked."
+        )
         return
 
     # Формируем сообщение для админа с product_id
-    admin_message = f"Сообщение от {user_name} (ID: {user_id})\nID продукта: {product_id}\n\n"
+    admin_message = (
+        f"Сообщение от {user_name} (ID: {user_id})\nID продукта: {product_id}\n\n"
+    )
 
     if message.text:
         admin_message += f"{message.text}"
         sent_message = await bot.send_message(
             ADMIN_ID,
             admin_message,
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="Закончить", callback_data=f"end_dialog_{user_id}")],
-                [InlineKeyboardButton(text="Заблокировать", callback_data=f"block_user_{user_id}")],
-                [InlineKeyboardButton(text="Разблокировать", callback_data=f"unblock_user_{user_id}")]
-            ])
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text="Закончить", callback_data=f"end_dialog_{user_id}"
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            text="Заблокировать", callback_data=f"block_user_{user_id}"
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            text="Разблокировать",
+                            callback_data=f"unblock_user_{user_id}",
+                        )
+                    ],
+                ]
+            ),
         )
         add_dialog_message(user_id, sent_message.message_id)
         logger.info(
-            f"Text message from user ID: {user_id}, Name: {user_name}, Product ID: {product_id} forwarded to admin.")
+            f"Text message from user ID: {user_id}, Name: {user_name}, Product ID: {product_id}, Text: {message.text}; forwarded to admin."
+        )
 
     elif message.photo:
         photo = message.photo[-1]  # Get the highest resolution photo
@@ -251,14 +312,31 @@ async def forward_to_admin(message: Message):
             ADMIN_ID,
             photo.file_id,
             caption=caption,
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="Закончить", callback_data=f"end_dialog_{user_id}")],
-                [InlineKeyboardButton(text="Заблокировать", callback_data=f"block_user_{user_id}")],
-                [InlineKeyboardButton(text="Разблокировать", callback_data=f"unblock_user_{user_id}")]
-            ])
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text="Закончить", callback_data=f"end_dialog_{user_id}"
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            text="Заблокировать", callback_data=f"block_user_{user_id}"
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            text="Разблокировать",
+                            callback_data=f"unblock_user_{user_id}",
+                        )
+                    ],
+                ]
+            ),
         )
         add_dialog_message(user_id, sent_message.message_id)
-        logger.info(f"Photo from user ID: {user_id}, Name: {user_name}, Product ID: {product_id} forwarded to admin.")
+        logger.info(
+            f"Photo from user ID: {user_id}, Name: {user_name}, Product ID: {product_id}, Caption: {message.caption}; forwarded to admin."
+        )
 
     elif message.document:
         caption = admin_message + (message.caption if message.caption else "")
@@ -266,23 +344,45 @@ async def forward_to_admin(message: Message):
             ADMIN_ID,
             message.document.file_id,
             caption=caption,
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="Закончить", callback_data=f"end_dialog_{user_id}")],
-                [InlineKeyboardButton(text="Заблокировать", callback_data=f"block_user_{user_id}")],
-                [InlineKeyboardButton(text="Разблокировать", callback_data=f"unblock_user_{user_id}")]
-            ])
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text="Закончить", callback_data=f"end_dialog_{user_id}"
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            text="Заблокировать", callback_data=f"block_user_{user_id}"
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            text="Разблокировать",
+                            callback_data=f"unblock_user_{user_id}",
+                        )
+                    ],
+                ]
+            ),
         )
         add_dialog_message(user_id, sent_message.message_id)
         logger.info(
-            f"Document from user ID: {user_id}, Name: {user_name}, Product ID: {product_id} forwarded to admin.")
+            f"Document from user ID: {user_id}, Name: {user_name}, Product ID: {product_id}, Caption: {message.caption}; forwarded to admin."
+        )
 
     else:
-        await bot.send_message(ADMIN_ID,
-                               f"Пользователь {user_name} (ID: {user_id}) отправил неподдерживаемый тип медиа.\nПродукт ID: {product_id}")
-        logger.warning(f"Unsupported media type from user ID: {user_id}, Name: {user_name}, Product ID: {product_id}.")
+        await bot.send_message(
+            ADMIN_ID,
+            f"Пользователь {user_name} (ID: {user_id}) отправил неподдерживаемый тип медиа.\nПродукт ID: {product_id}",
+        )
+        logger.warning(
+            f"Unsupported media type from user ID: {user_id}, Name: {user_name}, Product ID: {product_id}."
+        )
 
 
-@dp.message(lambda message: message.from_user.id == ADMIN_ID and message.reply_to_message)
+@dp.message(
+    lambda message: message.from_user.id == ADMIN_ID and message.reply_to_message
+)
 async def admin_reply(message: Message):
     """Handle admin reply to user message."""
     replied_message = message.reply_to_message.text
@@ -290,7 +390,9 @@ async def admin_reply(message: Message):
     user_name = replied_message.split("Сообщение от ")[1].split(" (ID:")[0]
     add_dialog_message(user_id, message.message_id)
     await bot.send_message(user_id, message.text)
-    logger.info(f"Admin replied to message from user ID: {user_id}, Name: {user_name}.")
+    logger.info(
+        f"Admin replied to message from user ID: {user_id}, Name: {user_name}, Text: {message.text}."
+    )
 
 
 @dp.callback_query(lambda c: c.data.startswith("end_dialog_"))
@@ -312,10 +414,16 @@ async def end_dialog(callback_query: CallbackQuery):
     await callback_query.answer(f"Диалог с пользователем {user_name} завершен.")
     if str(user_id) in get_active_dialogs().keys():
         remove_active_dialog(user_id)
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Нужна помощь", callback_data="need_help")]
-    ])
-    await bot.send_message(user_id, "Если у вас есть еще вопросы, нажмите 'Нужна помощь'.", reply_markup=keyboard)
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Нужна помощь", callback_data="need_help")]
+        ]
+    )
+    await bot.send_message(
+        user_id,
+        "Если у вас есть еще вопросы, нажмите 'Нужна помощь'.",
+        reply_markup=keyboard,
+    )
     logger.info(f"Dialog with user ID: {user_id}, Name: {user_name} has ended.")
 
 
@@ -342,7 +450,9 @@ async def unblock_user(callback_query: CallbackQuery):
         logger.info(f"User ID: {user_id}, Name: {user_name} has been unblocked.")
     else:
         await callback_query.answer(f"Пользователь {user_name} не был заблокирован.")
-        logger.warning(f"Attempt to unblock user ID: {user_id}, Name: {user_name}, who was not blocked.")
+        logger.warning(
+            f"Attempt to unblock user ID: {user_id}, Name: {user_name}, who was not blocked."
+        )
 
 
 async def main():
@@ -353,5 +463,8 @@ async def main():
 
 
 if __name__ == "__main__":
+    REQUESTS.inc(load_data().get("total_requests", 0))
+    ACTIVE_DIALOGS.set(len(get_active_dialogs()))
+    BLOCKED_USERS.set(len(get_blocked_users()))
     start_http_server(8000)
     asyncio.run(main())
