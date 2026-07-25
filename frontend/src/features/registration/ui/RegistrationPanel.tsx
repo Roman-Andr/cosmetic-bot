@@ -1,10 +1,10 @@
 import { useState, type FormEvent } from "react";
 
+import type { Profile } from "../../../entities/loyalty/model/types";
 import { api } from "../../../shared/api/client";
 import { errorMessage } from "../../../shared/lib/format";
 import { getTelegramApp, haptic } from "../../../shared/lib/telegram";
 import { Icon } from "../../../shared/ui/Icon";
-import type { Profile } from "../../../entities/loyalty/model/types";
 
 const privacyUrl = "https://velinacosmetic.by/privacy";
 
@@ -56,27 +56,29 @@ export function RegistrationPanel({
     } finally { setSubmitting(false); }
   };
 
-  return <section className="registration-layout">
-    <section className="intro-card">
-      <span className="intro-icon"><Icon name="sparkle" /></span>
+  return <section className="onboarding">
+    <section className="onboarding-intro">
+      <span className="onboarding-symbol"><Icon name="sparkle" /></span>
       <p className="eyebrow">VELINA CLUB</p>
-      <h2>Красота,<br /><em>которая</em> возвращается</h2>
-      <p>Возвращаем бонусы за покупки, бережно храним их на вашем балансе и дарим 10% в дни рождения.</p>
-      <div className="intro-perks"><span><b>до 7%</b> по уровню</span><span><b>10%</b> ко дню рождения</span></div>
+      <h1>Красота<br />возвращается.</h1>
+      <p>Получайте кешбэк за покупки, повышайте уровень и забирайте 10% в праздничные дни.</p>
+      <div className="onboarding-perks"><span>до <b>7%</b> по уровню</span><span><b>10%</b> ко дню рождения</span></div>
     </section>
-    <form className="panel form registration-form" onSubmit={(event) => void submit(event)}>
-      <div className="panel-heading"><div><p className="overline">VELINA CLUB</p><h2>Создать профиль</h2></div><span className={`phone-status${contactReady ? " ready" : ""}`}><i />{contactReady ? "Номер получен" : "Шаг 1 из 2"}</span></div>
-      <p className="muted">Сначала подтвердите номер через защищённое окно Telegram — так мы защитим ваш баланс.</p>
-      <button type="button" className={`contact-button${contactReady ? " is-ready" : ""}`} onClick={requestContact}>
-        <span className="button-icon"><Icon name={contactReady ? "check" : "shield"} /></span>{contactReady ? "Номер подтверждён" : "Поделиться номером"}
-      </button>
-      <div className="form-grid">
-        <label>ФИО<input required autoComplete="name" value={fullName} onChange={(event) => setFullName(event.target.value)} placeholder="Как к вам обращаться" /></label>
-        <label>Дата рождения<input required type="date" value={birthDate} onChange={(event) => setBirthDate(event.target.value)} /></label>
-      </div>
-      <label>Пол<select value={gender} onChange={(event) => setGender(event.target.value as "male" | "female")}><option value="female">Женский</option><option value="male">Мужской</option></select></label>
-      <label className="check"><input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} /><span>Соглашаюсь с <a href={privacyUrl} target="_blank" rel="noreferrer">политикой конфиденциальности</a>.</span></label>
-      <button className="primary-action" disabled={!contactReady || !consent || submitting} type="submit">{submitting ? "Создаём профиль…" : "Стать участником"}<Icon name="arrow" /></button>
+    <form className="onboarding-form" onSubmit={(event) => void submit(event)}>
+      <div className="onboarding-steps" aria-label="Этапы регистрации"><span className="active"><i>1</i>Номер</span><span className={contactReady ? "active" : ""}><i>2</i>Профиль</span></div>
+      {!contactReady ? <section className="onboarding-step">
+        <div><p className="overline">ШАГ 1 ИЗ 2</p><h2>Подтвердим номер</h2><p>Telegram передаст номер напрямую — он нужен только для защиты вашего бонусного счёта.</p></div>
+        <button type="button" className="primary-action" onClick={requestContact}>Поделиться номером <Icon name="shield" /></button>
+      </section> : <section className="onboarding-step">
+        <div><p className="overline">ШАГ 2 ИЗ 2</p><h2>Немного о вас</h2><p>Номер подтверждён. Заполним профиль и активируем ваш бонусный счёт.</p></div>
+        <div className="form-grid">
+          <label>ФИО<input required autoComplete="name" value={fullName} onChange={(event) => setFullName(event.target.value)} placeholder="Как к вам обращаться" /></label>
+          <label>Дата рождения<input required type="date" value={birthDate} onChange={(event) => setBirthDate(event.target.value)} /></label>
+        </div>
+        <label>Пол<select value={gender} onChange={(event) => setGender(event.target.value as "male" | "female")}><option value="female">Женский</option><option value="male">Мужской</option></select></label>
+        <label className="check"><input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} /><span>Соглашаюсь с <a href={privacyUrl} target="_blank" rel="noreferrer">политикой конфиденциальности</a>.</span></label>
+        <button className="primary-action" disabled={!consent || submitting} type="submit">{submitting ? "Создаём профиль…" : "Активировать Velina Club"}<Icon name="arrow" /></button>
+      </section>}
     </form>
   </section>;
 }

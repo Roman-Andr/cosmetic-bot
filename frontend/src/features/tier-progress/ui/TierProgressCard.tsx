@@ -8,9 +8,13 @@ export function TierProgressCard({ progress, onProgram }: { progress: TierProgre
   const percent = Math.min(100, Math.max(0, Number(progress.progress_percent)));
   const isMaxLevel = progress.next_tier === null;
   const ringStyle = { "--progress": `${percent}%` } as CSSProperties;
-  return <section className="tier-progress-card">
-    <div className="tier-progress-top"><div><p className="eyebrow">ВАШ ПРОГРЕСС</p><h2>{isMaxLevel ? "Максимальный уровень" : `До ${progress.next_tier?.cashback_percent}% кешбэка`}</h2></div></div>
-    <div className="tier-progress-main"><div className="progress-ring" style={ringStyle} aria-label={isMaxLevel ? "Достигнут максимальный уровень" : `Прогресс до следующего уровня: ${percent.toFixed(0)}%`}><div><strong>{isMaxLevel ? `${progress.current_tier.cashback_percent}%` : <Icon name="sparkle" size={20} />}</strong><small>{isMaxLevel ? "кешбэк" : "ваш путь"}</small></div></div><div className="progress-copy"><strong>{isMaxLevel ? "Максимальный уровень активен" : <>Осталось купить на <Money value={progress.amount_to_next_tier} /></>}</strong><p>{isMaxLevel ? `Ваш кешбэк — ${progress.current_tier.cashback_percent}%.` : "до следующего уровня лояльности"}</p></div></div>
-    <button type="button" className="program-link" onClick={onProgram}><span>Про программу лояльности</span><i><Icon name="arrow" size={17} /></i></button>
+
+  return <section className="journey-card">
+    <div className="journey-card-heading"><div><p className="eyebrow">ВАШ УРОВЕНЬ</p><h2>{isMaxLevel ? "Максимальный кешбэк" : `Путь к ${progress.next_tier?.cashback_percent}%`}</h2></div><span>{progress.current_tier.cashback_percent}%</span></div>
+    <div className="journey-card-body">
+      <div className="progress-ring" style={ringStyle} aria-label={isMaxLevel ? "Достигнут максимальный уровень" : `Прогресс до следующего уровня: ${percent.toFixed(0)}%`}><div><strong>{isMaxLevel ? <Icon name="check" size={22} /> : <Icon name="sparkle" size={20} />}</strong><small>{isMaxLevel ? "готово" : "уровень"}</small></div></div>
+      <div className="journey-copy"><strong>{isMaxLevel ? "Вы на вершине программы" : <>Осталось купить на <Money value={progress.amount_to_next_tier} /></>}</strong><p>{isMaxLevel ? "Ваш максимальный кешбэк уже активен." : "Следующая покупка приблизит новый уровень."}</p></div>
+    </div>
+    <button type="button" className="journey-link" onClick={onProgram}><span>Все уровни и история баллов</span><i><Icon name="arrow" size={16} /></i></button>
   </section>;
 }

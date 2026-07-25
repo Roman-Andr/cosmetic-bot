@@ -54,28 +54,25 @@ export default function App() {
   const role = profile?.admin_role ?? adminRole;
   const isOwner = role === "owner";
   const canSell = role === "sales" || isOwner;
-  const displayName = profile?.full_name?.split(" ")[0] ?? (canSell ? "Администратор" : "Velina");
-
   if (loading) return <main className="screen loading-screen"><span className="loader" /><p>Открываем Velina Club…</p></main>;
 
   return <main className="screen">
-    <header className="hero">
-      <div className="brand-mark">V</div>
-      <div><p className="eyebrow">VELINA COSMETIC</p><h1>{canSell ? "Рабочее пространство" : `Здравствуйте, ${displayName}`}</h1></div>
+    <header className="app-header">
+      <div className="brand-lockup"><span className="brand-mark">V</span><span><b>VELINA</b><small>CLUB</small></span></div>
       {canSell && <span className="access-chip"><Icon name="shield" size={14} />{isOwner ? "Владелец" : "Sales"}</span>}
     </header>
     {notice && <button type="button" className="notice" role="alert" onClick={() => setNotice(null)}><span>{notice}</span><Icon name="close" size={18} /></button>}
     {profile ? <>
-      {canSell && <nav className="section-grid" aria-label="Разделы кабинета">
-        <SectionTile active={tab === "profile"} icon="account" title="Мой профиль" subtitle="Баланс и код" onClick={() => setTab("profile")} />
-        <SectionTile active={tab === "sale"} icon="sale" title="Оформить" subtitle="Покупка клиента" badge="SALE" onClick={() => setTab("sale")} />
-        {isOwner && <SectionTile active={tab === "admin"} icon="shield" title="Управление" subtitle="Программа и команда" badge="OWNER" onClick={() => setTab("admin")} />}
+      {canSell && <nav className="workspace-tabs" aria-label="Разделы кабинета">
+        <SectionTile active={tab === "profile"} icon="account" title="Мой профиль" onClick={() => setTab("profile")} />
+        <SectionTile active={tab === "sale"} icon="sale" title="Продажа" onClick={() => setTab("sale")} />
+        {isOwner && <SectionTile active={tab === "admin"} icon="shield" title="Управление" onClick={() => setTab("admin")} />}
       </nav>}
       <div className="tab-content">
         {tab === "profile" && <ProfilePanel profile={profile} onProfile={setProfile} onNotice={setNotice} />}
         {tab === "sale" && canSell && <SaleWorkspace onNotice={setNotice} />}
         {tab === "admin" && isOwner && <OwnerDashboard onNotice={setNotice} />}
       </div>
-    </> : canSell ? <><nav className={`section-grid admin-only-nav${isOwner ? " owner-without-profile" : ""}`}><SectionTile active={tab === "sale"} icon="sale" title="Оформить покупку" subtitle="Рабочее место" badge="SALE" onClick={() => setTab("sale")} />{isOwner && <SectionTile active={tab === "admin"} icon="shield" title="Управление" subtitle="Программа и команда" badge="OWNER" onClick={() => setTab("admin")} />}</nav>{tab === "admin" && isOwner ? <OwnerDashboard onNotice={setNotice} /> : <SaleWorkspace onNotice={setNotice} />}</> : <RegistrationPanel contactReady={contactReady} onContactReady={setContactReady} onProfile={setProfile} onNotice={setNotice} />}
+    </> : canSell ? <><nav className="workspace-tabs" aria-label="Разделы кабинета"><SectionTile active={tab === "sale"} icon="sale" title="Продажа" onClick={() => setTab("sale")} />{isOwner && <SectionTile active={tab === "admin"} icon="shield" title="Управление" onClick={() => setTab("admin")} />}</nav>{tab === "admin" && isOwner ? <OwnerDashboard onNotice={setNotice} /> : <SaleWorkspace onNotice={setNotice} />}</> : <RegistrationPanel contactReady={contactReady} onContactReady={setContactReady} onProfile={setProfile} onNotice={setNotice} />}
   </main>;
 }
