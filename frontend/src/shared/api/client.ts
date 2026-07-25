@@ -1,4 +1,4 @@
-import { getTelegramApp } from "./telegram";
+import { getTelegramApp } from "../lib/telegram";
 
 export class ApiError extends Error {
   constructor(public readonly status: number, message: string) {
@@ -8,9 +8,7 @@ export class ApiError extends Error {
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const initData = getTelegramApp()?.initData;
-  if (!initData) {
-    throw new ApiError(401, "Откройте приложение внутри Telegram.");
-  }
+  if (!initData) throw new ApiError(401, "Откройте приложение внутри Telegram.");
   const response = await fetch(`/api${path}`, {
     ...options,
     headers: {
@@ -43,7 +41,7 @@ export async function download(path: string, filename: string): Promise<void> {
 export const api = {
   get: <T>(path: string) => request<T>(path),
   post: <T>(path: string, payload?: unknown) =>
-    request<T>(path, { method: "POST", body: payload ? JSON.stringify(payload) : undefined }),
+    request<T>(path, { method: "POST", body: payload === undefined ? undefined : JSON.stringify(payload) }),
   patch: <T>(path: string, payload: unknown) =>
     request<T>(path, { method: "PATCH", body: JSON.stringify(payload) }),
   put: <T>(path: string, payload: unknown) =>
