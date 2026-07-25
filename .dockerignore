@@ -126,6 +126,10 @@ celerybeat.pid
 .env
 .env.*
 !.env.example
+frontend/node_modules/
+frontend/dist/
+node_modules/
+dist/
 bot_data.json
 cosmeticsbot-*.json
 google-service-account*.json
