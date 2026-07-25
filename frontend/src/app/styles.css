@@ -26,8 +26,8 @@ a { color: #087244; font-weight: 800; }
 
 .hero { display: flex; align-items: center; gap: 12px; padding: 4px 2px 22px; }
 .brand-mark { display: grid; width: 42px; height: 42px; flex: 0 0 auto; place-items: center; border-radius: 15px 15px 15px 5px; color: #fff; background: linear-gradient(145deg, #176e45, #0b4f30); box-shadow: 0 10px 22px rgb(9 87 48 / 23%); font-family: "Playfair Display", Georgia, serif; font-size: 25px; font-weight: 700; }
-.hero > div:nth-child(2) { min-width: 0; }
-.hero h1 { overflow: hidden; margin: 0; color: #143927; font-size: clamp(22px, 6.7vw, 33px); letter-spacing: -.06em; line-height: 1.06; text-overflow: ellipsis; white-space: nowrap; }
+.hero > div:nth-child(2) { min-width: 0; flex: 1 1 auto; }
+.hero h1 { margin: 0; color: #143927; font-size: clamp(20px, 6.1vw, 33px); letter-spacing: -.06em; line-height: 1.08; overflow-wrap: anywhere; text-wrap: balance; }
 .eyebrow, .overline { margin: 0 0 5px; color: #118053; font-size: 9px; font-weight: 800; letter-spacing: .155em; line-height: 1.2; }
 .overline { color: #648574; letter-spacing: .12em; }
 .access-chip { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; padding: 7px 9px; border: 1px solid #c8e7ce; border-radius: 999px; color: #126842; background: #e9f7eb; font-size: 10px; font-weight: 800; }
@@ -306,6 +306,7 @@ a { color: #087244; font-weight: 800; }
 
 @media (max-width: 380px) {
   .screen { padding-right: 12px; padding-left: 12px; }
+  .hero h1 { font-size: clamp(19px, 6.3vw, 24px); letter-spacing: -.05em; }
   .section-tile { min-height: 84px; padding: 10px; }
   .tile-icon { width: 34px; height: 34px; }
   .tile-copy small { display: none; }
