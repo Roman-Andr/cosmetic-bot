@@ -67,6 +67,11 @@ class SupportDialogStatus(StrEnum):
     CLOSED = "closed"
 
 
+def enum_values(enum_type: type[StrEnum]) -> list[str]:
+    """Persist stable enum values rather than Python member names in PostgreSQL."""
+    return [member.value for member in enum_type]
+
+
 class Customer(Base, CreatedAtMixin):
     """A Telegram customer registered in the loyalty programme."""
 
@@ -80,7 +85,9 @@ class Customer(Base, CreatedAtMixin):
     phone: Mapped[str] = mapped_column(String(32), unique=True, nullable=False, index=True)
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
     birth_date: Mapped[date] = mapped_column(Date, nullable=False)
-    gender: Mapped[Gender] = mapped_column(Enum(Gender, name="gender"), nullable=False)
+    gender: Mapped[Gender] = mapped_column(
+        Enum(Gender, name="gender", values_callable=enum_values), nullable=False
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
@@ -148,7 +155,9 @@ class AdminUser(Base, CreatedAtMixin):
     __tablename__ = "admin_users"
 
     telegram_user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    role: Mapped[AdminRole] = mapped_column(Enum(AdminRole, name="admin_role"), nullable=False)
+    role: Mapped[AdminRole] = mapped_column(
+        Enum(AdminRole, name="admin_role", values_callable=enum_values), nullable=False
+    )
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     added_by_telegram_id: Mapped[int | None] = mapped_column(BigInteger)
 
@@ -188,7 +197,7 @@ class Purchase(Base, CreatedAtMixin):
     )
     recorded_by_telegram_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
     status: Mapped[PurchaseStatus] = mapped_column(
-        Enum(PurchaseStatus, name="purchase_status"),
+        Enum(PurchaseStatus, name="purchase_status", values_callable=enum_values),
         nullable=False,
         default=PurchaseStatus.CONFIRMED,
     )
@@ -251,7 +260,12 @@ class BonusTransaction(Base, CreatedAtMixin):
         UUID(as_uuid=True), ForeignKey("purchases.id", ondelete="RESTRICT"), index=True
     )
     operation_type: Mapped[BonusOperationType] = mapped_column(
-        Enum(BonusOperationType, name="bonus_operation_type"), nullable=False
+        Enum(
+            BonusOperationType,
+            name="bonus_operation_type",
+            values_callable=enum_values,
+        ),
+        nullable=False,
     )
     amount: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
     balance_after: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
@@ -319,7 +333,11 @@ class SupportDialog(Base, CreatedAtMixin):
     customer_name: Mapped[str] = mapped_column(String(255), nullable=False)
     product_external_id: Mapped[str | None] = mapped_column(String(128))
     status: Mapped[SupportDialogStatus] = mapped_column(
-        Enum(SupportDialogStatus, name="support_dialog_status"),
+        Enum(
+            SupportDialogStatus,
+            name="support_dialog_status",
+            values_callable=enum_values,
+        ),
         nullable=False,
         default=SupportDialogStatus.OPEN,
     )
