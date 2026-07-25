@@ -1,5 +1,6 @@
 """Typed runtime configuration loaded from environment variables."""
 
+from decimal import Decimal
 from functools import lru_cache
 from typing import Literal
 
@@ -29,6 +30,19 @@ class Settings(BaseSettings):
     loyalty_code_pepper: SecretStr = Field(validation_alias="LOYALTY_CODE_PEPPER")
     telegram_mode: Literal["webhook", "polling"] = Field(
         default="webhook", validation_alias="TELEGRAM_MODE"
+    )
+
+    birthday_cashback_percent: Decimal = Field(
+        default=Decimal("10.00"),
+        ge=0,
+        le=100,
+        validation_alias="BIRTHDAY_CASHBACK_PERCENT",
+    )
+    birthday_cashback_window_days: int = Field(
+        default=3,
+        ge=0,
+        le=31,
+        validation_alias="BIRTHDAY_CASHBACK_WINDOW_DAYS",
     )
 
     google_sheets_credentials_file: str | None = Field(

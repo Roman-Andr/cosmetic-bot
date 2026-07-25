@@ -13,7 +13,15 @@ from app.api.dependencies import (
     SessionDependency,
     SettingsDependency,
 )
-from app.models import ContactShare, Customer, LoyaltyAccount, LoyaltyTierRule, Purchase
+from app.models import (
+    AdminRole,
+    AdminUser,
+    ContactShare,
+    Customer,
+    LoyaltyAccount,
+    LoyaltyTierRule,
+    Purchase,
+)
 from app.schemas.loyalty import (
     CodeResponse,
     ContactStatusResponse,
@@ -24,7 +32,11 @@ from app.schemas.loyalty import (
     RegistrationRequest,
     TierResponse,
 )
-from app.services.loyalty import LoyaltyService
+from app.services.loyalty import (
+    MINSK_TIMEZONE,
+    LoyaltyService,
+    is_birthday_cashback_active,
+)
 
 router = APIRouter(prefix="/loyalty", tags=["loyalty"])
 CONTACT_SHARE_TTL = timedelta(minutes=15)
@@ -56,7 +68,11 @@ async def current_tier(session: SessionDependency, turnover: object) -> LoyaltyT
     return tier
 
 
-async def profile_response(session: SessionDependency, customer: Customer) -> ProfileResponse:
+async def profile_response(
+    session: SessionDependency,
+    customer: Customer,
+    settings: SettingsDependency,
+) -> ProfileResponse:
     """Build the customer profile with the dynamically selected loyalty tier."""
     account = await session.scalar(
         select(LoyaltyAccount).where(LoyaltyAccount.customer_id == customer.id)
@@ -66,6 +82,15 @@ async def profile_response(session: SessionDependency, customer: Customer) -> Pr
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Account missing"
         )
     tier = await current_tier(session, account.lifetime_turnover)
+    is_owner = (
+        await session.scalar(
+            select(AdminUser.telegram_user_id).where(
+                AdminUser.telegram_user_id == customer.telegram_user_id,
+                AdminUser.role == AdminRole.OWNER,
+                AdminUser.is_active.is_(True),
+            )
+        )
+    ) is not None
     return ProfileResponse(
         full_name=customer.full_name,
         phone=customer.phone,
@@ -78,6 +103,14 @@ async def profile_response(session: SessionDependency, customer: Customer) -> Pr
             minimum_turnover=tier.minimum_turnover,
             cashback_percent=tier.cashback_percent,
         ),
+        birthday_cashback_active=is_birthday_cashback_active(
+            customer.birth_date,
+            datetime.now(MINSK_TIMEZONE).date(),
+            window_days=settings.birthday_cashback_window_days,
+        ),
+        birthday_cashback_percent=settings.birthday_cashback_percent,
+        birthday_cashback_window_days=settings.birthday_cashback_window_days,
+        is_owner=is_owner,
     )
 
 
@@ -101,6 +134,7 @@ async def register(
     payload: RegistrationRequest,
     session: SessionDependency,
     identity: IdentityDependency,
+    settings: SettingsDependency,
 ) -> ProfileResponse:
     """Create a loyalty profile after a verified Telegram contact share."""
     contact_share = await session.get(ContactShare, identity.telegram_user_id)
@@ -140,25 +174,30 @@ async def register(
     await session.delete(contact_share)
     await session.commit()
 
-    return await profile_response(session, customer)
+    return await profile_response(session, customer, settings)
 
 
 @router.get("/me", response_model=ProfileResponse)
-async def get_profile(session: SessionDependency, customer: CustomerDependency) -> ProfileResponse:
+async def get_profile(
+    session: SessionDependency,
+    settings: SettingsDependency,
+    customer: CustomerDependency,
+) -> ProfileResponse:
     """Return the authenticated customer's loyalty profile."""
-    return await profile_response(session, customer)
+    return await profile_response(session, customer, settings)
 
 
 @router.patch("/me", response_model=ProfileResponse)
 async def update_profile(
     payload: FullNameUpdateRequest,
     session: SessionDependency,
+    settings: SettingsDependency,
     customer: CustomerDependency,
 ) -> ProfileResponse:
     """Allow only the agreed post-registration full-name change."""
     customer.full_name = payload.full_name.strip()
     await session.commit()
-    return await profile_response(session, customer)
+    return await profile_response(session, customer, settings)
 
 
 @router.post("/code", response_model=CodeResponse)

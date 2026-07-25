@@ -15,6 +15,10 @@ export interface Profile {
   current_balance: string;
   lifetime_turnover: string;
   tier: { minimum_turnover: string; cashback_percent: string };
+  birthday_cashback_active: boolean;
+  birthday_cashback_percent: string;
+  birthday_cashback_window_days: number;
+  is_owner: boolean;
 }
 
 export interface Purchase {
@@ -22,6 +26,8 @@ export interface Purchase {
   created_at: string;
   total_amount: string;
   bonus_redeemed: string;
+  cashback_percent: string;
+  cashback_source: "tier" | "birthday";
   cashback_accrued: string;
 }
 

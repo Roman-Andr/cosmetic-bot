@@ -8,9 +8,10 @@ import secrets
 import uuid
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
 from typing import Protocol
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import Select, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,6 +20,7 @@ from app.core.config import Settings
 from app.models import (
     BonusOperationType,
     BonusTransaction,
+    CashbackSource,
     Customer,
     LoyaltyAccount,
     LoyaltyCode,
@@ -31,6 +33,7 @@ from app.models import (
 
 MONEY_QUANTUM = Decimal("0.01")
 MAX_BONUS_SHARE = Decimal("0.10")
+MINSK_TIMEZONE = ZoneInfo("Europe/Minsk")
 
 
 class LoyaltyError(Exception):
@@ -62,6 +65,7 @@ class PurchaseResult:
     accrued: Decimal
     balance_after: Decimal
     cashback_percent: Decimal
+    cashback_source: CashbackSource
     tier_minimum_turnover: Decimal
 
 
@@ -77,6 +81,7 @@ class PurchasePreview:
     cash_paid: Decimal
     accrued: Decimal
     cashback_percent: Decimal
+    cashback_source: CashbackSource
     tier_minimum_turnover: Decimal
 
 
@@ -88,6 +93,14 @@ class PurchaseAmounts:
     cash_paid: Decimal
     accrued: Decimal
     balance_after: Decimal
+
+
+@dataclass(frozen=True)
+class EffectiveCashback:
+    """Cashback rate selected for one confirmed purchase."""
+
+    percent: Decimal
+    source: CashbackSource
 
 
 def money(value: Decimal | int | str, *, rounding: str = ROUND_HALF_UP) -> Decimal:
@@ -117,6 +130,50 @@ def calculate_purchase_amounts(
         accrued=accrued,
         balance_after=balance_after,
     )
+
+
+def observed_birthday(birth_date: date, year: int) -> date:
+    """Return the birthday observed in ``year``; 29 February is observed on 28 February."""
+    if birth_date.month == 2 and birth_date.day == 29:
+        try:
+            return date(year, 2, 29)
+        except ValueError:
+            return date(year, 2, 28)
+    return birth_date.replace(year=year)
+
+
+def is_birthday_cashback_active(
+    birth_date: date,
+    purchase_date: date,
+    *,
+    window_days: int,
+) -> bool:
+    """Check the inclusive birthday window, including dates that cross a calendar year."""
+    return any(
+        abs((purchase_date - observed_birthday(birth_date, year)).days) <= window_days
+        for year in (purchase_date.year - 1, purchase_date.year, purchase_date.year + 1)
+    )
+
+
+def effective_cashback(
+    *,
+    tier_percent: Decimal,
+    birth_date: date,
+    purchase_date: date,
+    birthday_cashback_percent: Decimal,
+    birthday_cashback_window_days: int,
+) -> EffectiveCashback:
+    """Apply the birthday promotion before the normal turnover-based tier."""
+    if is_birthday_cashback_active(
+        birth_date,
+        purchase_date,
+        window_days=birthday_cashback_window_days,
+    ):
+        return EffectiveCashback(
+            percent=birthday_cashback_percent,
+            source=CashbackSource.BIRTHDAY,
+        )
+    return EffectiveCashback(percent=tier_percent, source=CashbackSource.TIER)
 
 
 def code_digest(code: str, pepper: SecretValue) -> str:
@@ -216,12 +273,16 @@ class LoyaltyService:
                 raise LoyaltyError("Loyalty account does not exist")
 
             tier = await self._current_tier(session, account.lifetime_turnover)
+            customer = await session.get(Customer, account.customer_id)
+            if customer is None:
+                raise LoyaltyError("Customer does not exist")
+            cashback = self._effective_cashback(tier, customer.birth_date, now)
             products = await self._selected_products(session, selected_products)
 
             amounts = calculate_purchase_amounts(
                 current_balance=account.current_balance,
                 total_amount=total,
-                cashback_percent=tier.cashback_percent,
+                cashback_percent=cashback.percent,
             )
             redeemed = amounts.redeemed
             cash_paid = amounts.cash_paid
@@ -236,7 +297,8 @@ class LoyaltyService:
                 total_amount=total,
                 bonus_redeemed=redeemed,
                 cash_paid=cash_paid,
-                cashback_percent=tier.cashback_percent,
+                cashback_percent=cashback.percent,
+                cashback_source=cashback.source,
                 cashback_accrued=accrued,
                 tier_minimum_turnover=tier.minimum_turnover,
             )
@@ -279,17 +341,20 @@ class LoyaltyService:
             code.used_at = now
             code.used_by_telegram_id = recorded_by_telegram_id
 
-            customer_telegram_id = await session.scalar(
-                select(Customer.telegram_user_id).where(Customer.id == account.customer_id)
+            customer_telegram_id = customer.telegram_user_id
+
+            promotion_text = (
+                f" по акции ко дню рождения ({cashback.percent}%)"
+                if cashback.source is CashbackSource.BIRTHDAY
+                else ""
             )
-            if customer_telegram_id is None:
-                raise LoyaltyError("Customer does not exist")
 
             session.add(
                 NotificationOutbox(
                     chat_id=customer_telegram_id,
                     body=(
-                        f"Вам начислено {accrued} бонусов. Текущий баланс: {balance_after} бонусов."
+                        f"Вам начислено {accrued} бонусов{promotion_text}. "
+                        f"Текущий баланс: {balance_after} бонусов."
                     ),
                 )
             )
@@ -306,7 +371,8 @@ class LoyaltyService:
             redeemed=redeemed,
             accrued=accrued,
             balance_after=balance_after,
-            cashback_percent=tier.cashback_percent,
+            cashback_percent=cashback.percent,
+            cashback_source=cashback.source,
             tier_minimum_turnover=tier.minimum_turnover,
         )
 
@@ -339,10 +405,11 @@ class LoyaltyService:
         if customer is None:
             raise LoyaltyError("Customer does not exist")
         tier = await self._current_tier(session, account.lifetime_turnover)
+        cashback = self._effective_cashback(tier, customer.birth_date, datetime.now(UTC))
         amounts = calculate_purchase_amounts(
             current_balance=account.current_balance,
             total_amount=total,
-            cashback_percent=tier.cashback_percent,
+            cashback_percent=cashback.percent,
         )
         return PurchasePreview(
             customer_name=customer.full_name,
@@ -352,8 +419,24 @@ class LoyaltyService:
             redeemed=amounts.redeemed,
             cash_paid=amounts.cash_paid,
             accrued=amounts.accrued,
-            cashback_percent=tier.cashback_percent,
+            cashback_percent=cashback.percent,
+            cashback_source=cashback.source,
             tier_minimum_turnover=tier.minimum_turnover,
+        )
+
+    def _effective_cashback(
+        self,
+        tier: LoyaltyTierRule,
+        birth_date: date,
+        now: datetime,
+    ) -> EffectiveCashback:
+        """Select the promotion using the Minsk calendar date of the purchase."""
+        return effective_cashback(
+            tier_percent=tier.cashback_percent,
+            birth_date=birth_date,
+            purchase_date=now.astimezone(MINSK_TIMEZONE).date(),
+            birthday_cashback_percent=self._settings.birthday_cashback_percent,
+            birthday_cashback_window_days=self._settings.birthday_cashback_window_days,
         )
 
     async def _current_tier(self, session: AsyncSession, turnover: Decimal) -> LoyaltyTierRule:

@@ -22,6 +22,7 @@ from app.models import (
     AdminRole,
     AdminUser,
     AuditEvent,
+    CashbackSource,
     Customer,
     LoyaltyAccount,
     LoyaltyCode,
@@ -465,7 +466,7 @@ async def export_purchases(
             "Сумма",
             "Списано бонусов",
             "Начислено бонусов",
-            "Уровень",
+            "Кешбэк",
             "Администратор",
             "Товары",
         ]
@@ -478,7 +479,11 @@ async def export_purchases(
                 purchase.total_amount,
                 purchase.bonus_redeemed,
                 purchase.cashback_accrued,
-                f"{purchase.cashback_percent}%",
+                (
+                    f"День рождения · {purchase.cashback_percent}%"
+                    if purchase.cashback_source is CashbackSource.BIRTHDAY
+                    else f"Уровень · {purchase.cashback_percent}%"
+                ),
                 purchase.recorded_by_telegram_id,
                 ", ".join(item.title_snapshot for item in purchase.items),
             ]

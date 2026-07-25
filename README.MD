@@ -8,6 +8,8 @@ the new system records loyalty purchases in PostgreSQL and offers a customer Min
 
 - configurable all-time turnover tiers (initially `0 → 3%`, `1000 → 5%`,
   `2000 → 7%`);
+- a birthday promotion: a configurable 10% cashback overrides the tier rate from
+  three calendar days before through three calendar days after the birthday;
 - one-hour, one-use six-digit customer codes, stored only as HMAC digests;
 - automatic bonus redemption capped at 10% of the full order and cashback on the
   cash-paid remainder;

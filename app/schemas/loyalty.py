@@ -4,9 +4,9 @@ from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.models import Gender
+from app.models import CashbackSource, Gender
 
 
 class RegistrationRequest(BaseModel):
@@ -15,6 +15,13 @@ class RegistrationRequest(BaseModel):
     full_name: str = Field(min_length=2, max_length=255)
     birth_date: date = Field(description="ISO date supplied by the Mini App")
     gender: Gender
+
+    @field_validator("birth_date")
+    @classmethod
+    def birth_date_must_not_be_in_the_future(cls, value: date) -> date:
+        if value > date.today():
+            raise ValueError("Birth date cannot be in the future")
+        return value
 
 
 class FullNameUpdateRequest(BaseModel):
@@ -39,6 +46,8 @@ class PurchaseSummaryResponse(BaseModel):
     created_at: datetime
     total_amount: Decimal
     bonus_redeemed: Decimal
+    cashback_percent: Decimal
+    cashback_source: CashbackSource
     cashback_accrued: Decimal
 
 
@@ -53,6 +62,10 @@ class ProfileResponse(BaseModel):
     current_balance: Decimal
     lifetime_turnover: Decimal
     tier: TierResponse
+    birthday_cashback_active: bool
+    birthday_cashback_percent: Decimal
+    birthday_cashback_window_days: int
+    is_owner: bool
 
 
 class ContactStatusResponse(BaseModel):

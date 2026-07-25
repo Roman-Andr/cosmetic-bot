@@ -53,6 +53,13 @@ class PurchaseStatus(StrEnum):
     CONFIRMED = "confirmed"
 
 
+class CashbackSource(StrEnum):
+    """The rule that determined a purchase's historical cashback percentage."""
+
+    TIER = "tier"
+    BIRTHDAY = "birthday"
+
+
 class BonusOperationType(StrEnum):
     """Ledger operation kinds used to derive the available bonus balance."""
 
@@ -205,6 +212,11 @@ class Purchase(Base, CreatedAtMixin):
     bonus_redeemed: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
     cash_paid: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
     cashback_percent: Mapped[Decimal] = mapped_column(PERCENT, nullable=False)
+    cashback_source: Mapped[CashbackSource] = mapped_column(
+        Enum(CashbackSource, name="cashback_source", values_callable=enum_values),
+        nullable=False,
+        default=CashbackSource.TIER,
+    )
     cashback_accrued: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
     tier_minimum_turnover: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
 

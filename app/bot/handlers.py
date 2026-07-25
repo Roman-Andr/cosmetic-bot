@@ -367,13 +367,18 @@ async def sale_preview(callback: CallbackQuery, state: FSMContext) -> None:
     await state.update_data(product_ids=product_ids)
     await state.set_state(SaleStates.confirmation)
     product_text = ", ".join(product_titles) if product_titles else "не выбраны"
+    cashback_label = (
+        "кешбэк ко дню рождения"
+        if preview.cashback_source.value == "birthday"
+        else "уровень лояльности"
+    )
     text = (
         "Проверьте продажу:\n\n"
         f"Клиент: {preview.customer_name}, {mask_phone(preview.customer_phone)}\n"
         f"Сумма: {preview.total_amount} BYN\n"
         f"Списать бонусов: {preview.redeemed} BYN\n"
         f"К оплате деньгами: {preview.cash_paid} BYN\n"
-        f"Начислить: {preview.accrued} бонусов ({preview.cashback_percent}%)\n"
+        f"Начислить: {preview.accrued} бонусов ({preview.cashback_percent}%, {cashback_label})\n"
         f"Товары: {product_text}"
     )
     await callback.answer()
@@ -413,10 +418,13 @@ async def sale_confirm(callback: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
     await callback.answer("Продажа зафиксирована")
     if callback.message:
+        cashback_label = ""
+        if result.cashback_source.value == "birthday":
+            cashback_label = " по акции ко дню рождения"
         await callback.message.answer(
             "Продажа зафиксирована. "
             f"Списано: {result.redeemed}; начислено: {result.accrued}; "
-            f"баланс клиента: {result.balance_after}."
+            f"баланс клиента: {result.balance_after}{cashback_label}."
         )
 
 
