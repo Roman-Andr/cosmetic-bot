@@ -287,9 +287,16 @@ a { color: var(--brand); font-weight: 700; text-underline-offset: 2px; }
 .code-sheet p b { color: var(--ink-soft); }
 .text-action { display: inline-flex; justify-self: start; align-items: center; gap: 5px; padding: 0; color: var(--brand); background: transparent; font-size: 11px; font-weight: 750; }
 
-.modal-tabs { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px; margin: 16px 0; padding: 4px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-soft); }
-.modal-tabs button { min-height: 35px; border-radius: 8px; color: var(--muted); background: transparent; font-size: 11px; font-weight: 750; }
-.modal-tabs button.active { color: var(--brand); background: var(--surface); }
+.modal-tabs { display: grid; position: relative; grid-template-columns: repeat(2, 1fr); gap: 4px; margin: 16px 0; padding: 4px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-soft); }
+.modal-tabs::before { position: absolute; z-index: 0; top: 4px; bottom: 4px; left: 4px; width: calc(50% - 6px); border-radius: 8px; background: var(--surface); box-shadow: 0 1px 2px rgb(0 0 0 / 4%); content: ""; transition: transform .28s cubic-bezier(.22, .8, .2, 1); }
+.modal-tabs.history-active::before { transform: translateX(calc(100% + 4px)); }
+.modal-tabs button { position: relative; z-index: 1; min-height: 35px; border-radius: 8px; color: var(--muted); background: transparent; font-size: 11px; font-weight: 750; transition: color .2s ease; }
+.modal-tabs button.active { color: var(--brand); }
+.program-panels { overflow: hidden; transition: height .28s cubic-bezier(.22, .8, .2, 1); }
+.program-pane-track { display: flex; width: 200%; align-items: flex-start; will-change: transform; transition: transform .32s cubic-bezier(.22, .8, .2, 1); }
+.program-panels.show-history .program-pane-track { transform: translate3d(-50%, 0, 0); }
+.program-pane { width: 50%; min-width: 0; flex: 0 0 50%; align-self: flex-start; opacity: .58; transform: translateY(5px); transition: opacity .2s ease, transform .28s cubic-bezier(.22, .8, .2, 1); }
+.program-pane.active { opacity: 1; transform: translateY(0); }
 .program-pane-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
 .program-pane-heading h3 { margin: 0; color: var(--ink-soft); font-size: 15px; font-weight: 750; }
 .program-pane-heading > span:not(.soft-icon) { padding: 5px 7px; border-radius: 999px; color: var(--brand); background: var(--brand-soft); font-size: 10px; font-weight: 750; }
