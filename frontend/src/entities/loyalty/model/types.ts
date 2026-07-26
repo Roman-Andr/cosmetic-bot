@@ -97,6 +97,15 @@ export interface Product {
   current_price: string | null;
 }
 
+export interface BuyerLookup {
+  customer_name: string;
+  customer_phone_masked: string;
+  registered_at: string;
+  current_balance: string;
+  cashback_percent: string;
+  cashback_source: CashbackSource;
+}
+
 export interface SalePreview {
   customer_name: string;
   customer_phone_masked: string;

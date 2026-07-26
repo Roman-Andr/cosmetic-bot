@@ -30,6 +30,17 @@ class PurchasePreviewRequest(BaseModel):
     total_amount: Decimal = Field(gt=0, max_digits=10, decimal_places=2)
 
 
+class BuyerLookupResponse(BaseModel):
+    """Customer information shown as soon as an administrator enters a valid code."""
+
+    customer_name: str
+    customer_phone_masked: str
+    registered_at: datetime
+    current_balance: Decimal
+    cashback_percent: Decimal
+    cashback_source: CashbackSource
+
+
 class PurchasePreviewResponse(BaseModel):
     """Privacy-minimised sale preview returned before an irreversible confirmation."""
 

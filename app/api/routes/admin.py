@@ -35,6 +35,7 @@ from app.schemas.admin import (
     AdminAccessResponse,
     AdminStatsResponse,
     AdminUserResponse,
+    BuyerLookupResponse,
     CustomerDetailResponse,
     CustomerSearchResponse,
     ProductResponse,
@@ -99,13 +100,7 @@ async def search_products(
                 Product.external_id.ilike(f"%{term}%"),
             )
         )
-    products = list(
-        (
-            await session.scalars(
-                statement.order_by(Product.title).limit(30)
-            )
-        ).all()
-    )
+    products = list((await session.scalars(statement.order_by(Product.title).limit(30))).all())
     return [
         ProductResponse(
             external_id=product.external_id,
@@ -147,6 +142,31 @@ async def preview_purchase(
         cashback_accrued=preview.accrued,
         cashback_percent=preview.cashback_percent,
         cashback_source=preview.cashback_source,
+    )
+
+
+@router.get("/purchases/customer", response_model=BuyerLookupResponse)
+async def lookup_purchase_customer(
+    session: SessionDependency,
+    settings: SettingsDependency,
+    _: SalesAdminDependency,
+    buyer_code: str = Query(pattern=r"^\d{6}$"),
+) -> BuyerLookupResponse:
+    """Show a sales administrator who owns a valid code without consuming it."""
+    try:
+        buyer = await LoyaltyService(settings).lookup_buyer(
+            session,
+            buyer_code=buyer_code,
+        )
+    except InvalidCodeError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    return BuyerLookupResponse(
+        customer_name=buyer.customer_name,
+        customer_phone_masked=mask_phone(buyer.customer_phone),
+        registered_at=buyer.registered_at,
+        current_balance=buyer.current_balance,
+        cashback_percent=buyer.cashback_percent,
+        cashback_source=buyer.cashback_source,
     )
 
 

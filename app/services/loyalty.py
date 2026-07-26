@@ -86,6 +86,19 @@ class PurchasePreview:
 
 
 @dataclass(frozen=True)
+class BuyerLookup:
+    """Privacy-minimised customer details resolved from a valid temporary code."""
+
+    customer_name: str
+    customer_phone: str
+    registered_at: datetime
+    current_balance: Decimal
+    cashback_percent: Decimal
+    cashback_source: CashbackSource
+    tier_minimum_turnover: Decimal
+
+
+@dataclass(frozen=True)
 class PurchaseAmounts:
     """Pure monetary calculation shared by preview and confirmed sale paths."""
 
@@ -387,38 +400,60 @@ class LoyaltyService:
         total = money(total_amount)
         if total <= 0:
             raise LoyaltyError("Purchase total must be greater than zero")
-        if not buyer_code.isdigit() or len(buyer_code) != 6:
-            raise InvalidCodeError("Buyer code must contain six digits")
-
-        code = await session.scalar(
-            select(LoyaltyCode).where(
-                LoyaltyCode.code_digest
-                == code_digest(buyer_code, self._settings.loyalty_code_pepper)
-            )
-        )
-        if code is None or code.used_at is not None or code.expires_at <= datetime.now(UTC):
-            raise InvalidCodeError("Buyer code is invalid, expired, or already used")
-        account = await session.get(LoyaltyAccount, code.account_id)
-        if account is None:
-            raise LoyaltyError("Loyalty account does not exist")
-        customer = await session.get(Customer, account.customer_id)
-        if customer is None:
-            raise LoyaltyError("Customer does not exist")
-        tier = await self._current_tier(session, account.lifetime_turnover)
-        cashback = self._effective_cashback(tier, customer.birth_date, datetime.now(UTC))
+        buyer = await self.lookup_buyer(session, buyer_code=buyer_code)
         amounts = calculate_purchase_amounts(
-            current_balance=account.current_balance,
+            current_balance=buyer.current_balance,
             total_amount=total,
-            cashback_percent=cashback.percent,
+            cashback_percent=buyer.cashback_percent,
         )
         return PurchasePreview(
-            customer_name=customer.full_name,
-            customer_phone=customer.phone,
-            current_balance=account.current_balance,
+            customer_name=buyer.customer_name,
+            customer_phone=buyer.customer_phone,
+            current_balance=buyer.current_balance,
             total_amount=total,
             redeemed=amounts.redeemed,
             cash_paid=amounts.cash_paid,
             accrued=amounts.accrued,
+            cashback_percent=buyer.cashback_percent,
+            cashback_source=buyer.cashback_source,
+            tier_minimum_turnover=buyer.tier_minimum_turnover,
+        )
+
+    async def lookup_buyer(
+        self,
+        session: AsyncSession,
+        *,
+        buyer_code: str,
+    ) -> BuyerLookup:
+        """Resolve a valid, unused customer code without consuming it."""
+        if not buyer_code.isdigit() or len(buyer_code) != 6:
+            raise InvalidCodeError("Buyer code must contain six digits")
+
+        now = datetime.now(UTC)
+        row = (
+            await session.execute(
+                select(Customer, LoyaltyAccount)
+                .join(LoyaltyAccount, LoyaltyAccount.customer_id == Customer.id)
+                .join(LoyaltyCode, LoyaltyCode.account_id == LoyaltyAccount.id)
+                .where(
+                    LoyaltyCode.code_digest
+                    == code_digest(buyer_code, self._settings.loyalty_code_pepper),
+                    LoyaltyCode.used_at.is_(None),
+                    LoyaltyCode.expires_at > now,
+                )
+            )
+        ).one_or_none()
+        if row is None:
+            raise InvalidCodeError("Buyer code is invalid, expired, or already used")
+
+        customer, account = row
+        tier = await self._current_tier(session, account.lifetime_turnover)
+        cashback = self._effective_cashback(tier, customer.birth_date, now)
+        return BuyerLookup(
+            customer_name=customer.full_name,
+            customer_phone=customer.phone,
+            registered_at=customer.created_at,
+            current_balance=account.current_balance,
             cashback_percent=cashback.percent,
             cashback_source=cashback.source,
             tier_minimum_turnover=tier.minimum_turnover,

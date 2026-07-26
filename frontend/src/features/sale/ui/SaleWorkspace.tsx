@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 
-import type { Product, SalePreview, SaleRecord } from "../../../entities/loyalty/model/types";
-import { api } from "../../../shared/api/client";
-import { errorMessage } from "../../../shared/lib/format";
+import type { BuyerLookup, Product, SalePreview, SaleRecord } from "../../../entities/loyalty/model/types";
+import { api, ApiError } from "../../../shared/api/client";
+import { errorMessage, formatDate } from "../../../shared/lib/format";
 import { haptic } from "../../../shared/lib/telegram";
 import { Icon } from "../../../shared/ui/Icon";
 import { Modal } from "../../../shared/ui/Modal";
@@ -20,8 +20,45 @@ export function SaleWorkspace({ onNotice }: { onNotice: (value: string | null) =
   const [previewing, setPreviewing] = useState(false);
   const [recording, setRecording] = useState(false);
   const [productPickerOpen, setProductPickerOpen] = useState(false);
+  const [buyer, setBuyer] = useState<BuyerLookup | null>(null);
+  const [buyerLookupState, setBuyerLookupState] = useState<"idle" | "loading" | "found" | "not-found">("idle");
   const productRequestId = useRef(0);
+  const buyerRequestId = useRef(0);
   const productPickerRef = useRef<HTMLDetailsElement>(null);
+
+  useEffect(() => {
+    if (buyerCode.length !== 6) {
+      buyerRequestId.current += 1;
+      setBuyer(null);
+      setBuyerLookupState("idle");
+      return;
+    }
+
+    const requestId = ++buyerRequestId.current;
+    setBuyerLookupState("loading");
+    const timer = window.setTimeout(() => {
+      void api.get<BuyerLookup>(`/admin/purchases/customer?buyer_code=${buyerCode}`)
+        .then((customer) => {
+          if (requestId !== buyerRequestId.current) return;
+          setBuyer(customer);
+          setBuyerLookupState("found");
+          haptic("light");
+        })
+        .catch((error: unknown) => {
+          if (requestId !== buyerRequestId.current) return;
+          setBuyer(null);
+          if (error instanceof ApiError && error.status === 404) {
+            setBuyerLookupState("not-found");
+            haptic("warning");
+          } else {
+            setBuyerLookupState("idle");
+            onNotice(errorMessage(error));
+          }
+        });
+    }, 180);
+
+    return () => window.clearTimeout(timer);
+  }, [buyerCode, onNotice]);
 
   useEffect(() => {
     if (!productPickerOpen) {
@@ -84,7 +121,8 @@ export function SaleWorkspace({ onNotice }: { onNotice: (value: string | null) =
   };
 
   const reset = (): void => {
-    setBuyerCode(""); setAmount(""); setQuery(""); setProducts([]); setSelectedProducts([]); setSuccess(null);
+    buyerRequestId.current += 1;
+    setBuyerCode(""); setBuyer(null); setBuyerLookupState("idle"); setAmount(""); setQuery(""); setProducts([]); setSelectedProducts([]); setPreview(null); setSuccess(null);
     if (productPickerRef.current) productPickerRef.current.open = false;
     setProductPickerOpen(false);
   };
@@ -95,7 +133,25 @@ export function SaleWorkspace({ onNotice }: { onNotice: (value: string | null) =
     <form className="sale-composer" onSubmit={(event) => void openPreview(event)}>
       <section className="sale-primary-fields">
         <div className="sale-section-heading"><span>1</span><div><h2>Клиент и сумма</h2><p>Шестизначный код клиент получает в своём Mini App.</p></div></div>
-        <div className="sale-input-grid"><label>Код клиента<input inputMode="numeric" pattern="[0-9]*" maxLength={6} value={buyerCode} onChange={(event) => setBuyerCode(event.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="000000" /></label><label>Сумма заказа<input inputMode="decimal" type="number" min="0.01" step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="0.00" /><span className="input-suffix"><CurrencySymbol /></span></label></div>
+        <div className="sale-input-grid">
+          <label className="sale-field"><span>Код клиента</span><span className={`sale-control code-control ${buyerLookupState}`}>
+            <Icon name="code" size={19} />
+            <input aria-label="Код клиента" inputMode="numeric" pattern="[0-9]*" maxLength={6} value={buyerCode} onChange={(event) => setBuyerCode(event.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="000000" />
+            {buyerLookupState === "loading" && <i className="field-loader" aria-label="Ищем клиента" />}
+            {buyerLookupState === "found" && <i className="field-status found"><Icon name="check" size={16} /></i>}
+          </span></label>
+          <label className="sale-field"><span>Сумма заказа</span><span className="sale-control amount-control">
+            <Icon name="sale" size={19} />
+            <input aria-label="Сумма заказа" inputMode="decimal" type="number" min="0.01" step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="0.00" />
+            <i className="input-suffix"><CurrencySymbol /></i>
+          </span></label>
+          {buyerLookupState === "not-found" && <p className="customer-lookup-error"><Icon name="close" size={15} />Код не найден, истёк или уже был использован.</p>}
+          {buyer && <section className="identified-customer">
+            <span className="identified-avatar">{buyer.customer_name.slice(0, 1).toUpperCase()}</span>
+            <div className="identified-copy"><small>Клиент найден</small><strong>{buyer.customer_name}</strong><span>{buyer.customer_phone_masked} · с {formatDate(buyer.registered_at)}</span></div>
+            <dl><div><dt>Баланс</dt><dd><Money value={buyer.current_balance} /></dd></div><div><dt>Кешбэк</dt><dd>{buyer.cashback_percent}%</dd></div></dl>
+          </section>}
+        </div>
       </section>
       <details ref={productPickerRef} className="product-picker" onToggle={(event) => setProductPickerOpen(event.currentTarget.open)}>
         <summary><span className="product-picker-icon"><Icon name="bag" size={18} /></span><span><strong>Добавить товары</strong><small>Необязательно, для истории заказа</small></span><em>{selectedProducts.length ? `${selectedProducts.length} выбрано` : "Опционально"}</em></summary>
@@ -111,7 +167,7 @@ export function SaleWorkspace({ onNotice }: { onNotice: (value: string | null) =
           </div>
         </div>
       </details>
-      <button className="primary-action sale-submit" disabled={previewing} type="submit">{previewing ? "Считаем бонусы…" : "Рассчитать заказ"}<Icon name="arrow" /></button>
+      <button className="primary-action sale-submit" disabled={previewing || buyerLookupState === "loading" || buyerLookupState === "not-found"} type="submit">{previewing ? "Считаем бонусы…" : "Рассчитать заказ"}<Icon name="arrow" /></button>
     </form>
     {preview && <SaleConfirmation preview={preview} products={selectedProducts} onCancel={() => setPreview(null)} onConfirm={() => void recordSale()} recording={recording} />}
     {success && <SaleSuccess result={success} onClose={reset} />}

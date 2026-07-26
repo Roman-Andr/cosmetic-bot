@@ -51,7 +51,7 @@ export function ProfilePanel({ profile, onProfile, onNotice }: {
   return <section className="customer-dashboard">
     <section className="loyalty-summary-grid" aria-label="Лояльность">
       <button type="button" className="loyalty-tile points-tile" onClick={() => setShowBalanceHistory(true)}>
-        <div className="tile-title-row"><p>Мои баллы</p><span><Icon name="arrow" size={14} /></span></div>
+        <div className="tile-title-row"><p>Мои баллы</p></div>
         <strong><Money value={profile.current_balance} /></strong>
       </button>
       <button type="button" className="loyalty-tile cashback-tile" onClick={() => setShowCode(true)}>
