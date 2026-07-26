@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 
 export type IconName =
   | "account" | "bag" | "chart" | "gift" | "shield" | "code" | "sale"
-  | "search" | "close" | "check" | "plus" | "arrow" | "download" | "sparkle";
+  | "search" | "close" | "check" | "plus" | "arrow" | "download" | "sparkle" | "copy";
 
 export function Icon({ name, size = 21 }: { name: IconName; size?: number }) {
   const paths: Record<IconName, ReactNode> = {
@@ -20,6 +20,7 @@ export function Icon({ name, size = 21 }: { name: IconName; size?: number }) {
     arrow: <path d="M5 12h13m-5-5 5 5-5 5" />,
     download: <><path d="M12 4v10m0 0 4-4m-4 4-4-4" /><path d="M5 18v2h14v-2" /></>,
     sparkle: <path d="m12 3 1.4 5.6L19 10l-5.6 1.4L12 17l-1.4-5.6L5 10l5.6-1.4L12 3Zm6 12 .7 2.3L21 18l-2.3.7L18 21l-.7-2.3L15 18l2.3-.7L18 15Z" />,
+    copy: <><rect x="8" y="8" width="11" height="11" rx="2" /><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" /></>,
   };
   return <svg className="icon" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>;
 }

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { api } from "../../../shared/api/client";
 import { errorMessage, formatTime } from "../../../shared/lib/format";
@@ -10,29 +10,48 @@ interface LoyaltyCode { code: string; expires_at: string; }
 
 export function LoyaltyCodeModal({ onClose, onNotice }: { onClose: () => void; onNotice: (value: string | null) => void }) {
   const [code, setCode] = useState<LoyaltyCode | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [copied, setCopied] = useState(false);
 
-  const getCode = async (): Promise<void> => {
+  const getCode = useCallback(async (): Promise<void> => {
     setLoading(true);
+    setCopied(false);
     try {
       setCode(await api.post<LoyaltyCode>("/loyalty/code"));
       haptic("success");
     } catch (error) { haptic("error"); onNotice(errorMessage(error)); }
     finally { setLoading(false); }
+  }, [onNotice]);
+
+  useEffect(() => { void getCode(); }, [getCode]);
+
+  const copyCode = async (): Promise<void> => {
+    if (!code) return;
+    try {
+      if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(code.code);
+      else {
+        const field = document.createElement("textarea");
+        field.value = code.code;
+        field.style.position = "fixed";
+        field.style.opacity = "0";
+        document.body.append(field);
+        field.select();
+        const didCopy = document.execCommand("copy");
+        field.remove();
+        if (!didCopy) throw new Error("Не удалось скопировать код.");
+      }
+      setCopied(true);
+      haptic("success");
+      window.setTimeout(() => setCopied(false), 1800);
+    } catch (error) { haptic("error"); onNotice(errorMessage(error)); }
   };
 
-  return <Modal title="Код для покупки" eyebrow="VELINA CLUB" onClose={onClose}>
-    <section className={`code-modal-hero${code ? " ready" : ""}`}>
-      <span><Icon name={code ? "check" : "code"} size={24} /></span>
-      <div><strong>{code ? "Код готов" : "Покажите код на кассе"}</strong><p>{code ? "Он привязан только к вашему бонусному счёту." : "Администратор использует его для расчёта скидки и кешбэка."}</p></div>
-    </section>
-    {code ? <section className="code-display">
-      <output>{code.code}</output>
-      <p>Действует до <b>{formatTime(code.expires_at)}</b>. После использования или через час код станет недействительным.</p>
-    </section> : <ul className="code-rules">
-      <li><Icon name="check" size={16} /><span>Бонусы спишутся автоматически — до 10% от заказа.</span></li>
-      <li><Icon name="check" size={16} /><span>Кешбэк вернётся на баланс сразу после покупки.</span></li>
-    </ul>}
-    <button className="primary-action" disabled={loading} onClick={() => void getCode()}>{loading ? "Готовим код…" : code ? "Получить новый код" : "Получить код"}<Icon name="arrow" /></button>
+  return <Modal title="Код для покупки" eyebrow="ВАШ КЕШБЭК" onClose={onClose}>
+    <p className="code-modal-copy">Покажите этот код администратору перед оплатой. Бонусы и кешбэк рассчитаются автоматически.</p>
+    {loading ? <div className="code-loading"><span className="loader" />Готовим ваш код…</div> : code ? <section className="code-sheet">
+      <div className="code-value"><output>{code.code}</output><button className={`copy-code${copied ? " copied" : ""}`} type="button" onClick={() => void copyCode()} aria-label="Скопировать код">{copied ? <Icon name="check" size={20} /> : <Icon name="copy" size={20} />}</button></div>
+      <p>Код действует до <b>{formatTime(code.expires_at)}</b> и используется один раз.</p>
+      <button className="text-action" type="button" onClick={() => void getCode()}>Обновить код <Icon name="arrow" size={16} /></button>
+    </section> : <button className="primary-action" type="button" onClick={() => void getCode()}>Получить код <Icon name="arrow" /></button>}
   </Modal>;
 }

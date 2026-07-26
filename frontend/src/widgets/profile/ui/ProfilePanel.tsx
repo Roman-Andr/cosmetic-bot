@@ -47,23 +47,19 @@ export function ProfilePanel({ profile, onProfile, onNotice }: {
   };
 
   return <section className="customer-dashboard">
-    <header className="customer-greeting">
-      <div><p className="eyebrow">VELINA CLUB</p><h1>Здравствуйте,<br />{firstName}</h1><p>С вами с {formatDate(profile.registered_at)}</p></div>
-      <button className="account-trigger" type="button" aria-label="Открыть данные профиля" onClick={openAccount}><Icon name="account" /></button>
-    </header>
-
-    <section className="wallet-card">
-      <div className="wallet-card-top"><span>Бонусный баланс</span><span className="tier-chip">{profile.tier.cashback_percent}% кешбэк</span></div>
-      <strong><Money value={profile.current_balance} /></strong>
-      <div className="wallet-card-footer"><span>Оборот <Money value={profile.lifetime_turnover} /></span><button type="button" onClick={() => setShowCode(true)}>Получить код <Icon name="arrow" size={17} /></button></div>
+    <section className="loyalty-summary-grid" aria-label="Лояльность">
+      <article className="loyalty-tile points-tile"><p>Мои баллы</p><strong><Money value={profile.current_balance} /></strong><small>Доступно к списанию</small></article>
+      <button type="button" className="loyalty-tile cashback-tile" onClick={() => setShowCode(true)}><span className="cashback-tile-icon"><Icon name="code" size={19} /></span><p>Кешбэк</p><strong>{profile.tier.cashback_percent}%</strong><small>Нажмите для кода</small></button>
+      <button type="button" className="program-tile" onClick={() => setShowProgram(true)}><span className="program-tile-icon"><Icon name="gift" size={21} /></span><span><strong>Бонусная программа</strong><small>Уровни, баллы и правила</small></span><i><Icon name="arrow" size={18} /></i></button>
     </section>
 
-    <TierProgressCard progress={profile.tier_progress} onProgram={() => setShowProgram(true)} />
-
-    <section className="dashboard-actions" aria-label="Быстрые действия">
-      <button type="button" className="dashboard-action" onClick={() => setShowPurchases(true)}><span className="dashboard-action-icon"><Icon name="bag" /></span><span><strong>Покупки</strong><small>История заказов</small></span><Icon name="arrow" size={17} /></button>
-      <button type="button" className={`dashboard-action${profile.birthday_cashback_active ? " birthday-active" : ""}`} onClick={() => setShowBirthday(true)}><span className="dashboard-action-icon"><Icon name="gift" /></span><span><strong>День рождения</strong><small>{profile.birthday_cashback_active ? `${profile.birthday_cashback_percent}% уже действует` : "Праздничный кешбэк"}</small></span><Icon name="arrow" size={17} /></button>
+    <section className="benefit-carousel" aria-label="Больше выгод">
+      <TierProgressCard progress={profile.tier_progress} onProgram={() => setShowProgram(true)} />
+      <button type="button" className={`birthday-benefit-card${profile.birthday_cashback_active ? " active" : ""}`} onClick={() => setShowBirthday(true)}><div><p>Подарки на день рождения</p><strong>{profile.birthday_cashback_percent}% кешбэк</strong><small>{profile.birthday_cashback_active ? "Праздничный период уже активен" : "За 3 дня до и 3 дня после"}</small></div><img src="/birthday-cake.svg" alt="Праздничный торт" /></button>
     </section>
+
+    <section className="customer-utility-row"><button type="button" onClick={() => setShowPurchases(true)}><span><Icon name="bag" size={18} />История покупок</span><Icon name="arrow" size={17} /></button><button className="profile-utility-button" type="button" aria-label="Открыть данные профиля" onClick={openAccount}><Icon name="account" size={18} /></button></section>
+    <p className="customer-member-note">Участник Velina Club с {formatDate(profile.registered_at)}</p>
 
     {showCode && <LoyaltyCodeModal onClose={() => setShowCode(false)} onNotice={onNotice} />}
     {showProgram && <LoyaltyProgramModal profile={profile} onClose={() => setShowProgram(false)} onNotice={onNotice} />}

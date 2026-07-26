@@ -9,12 +9,8 @@ export function TierProgressCard({ progress, onProgram }: { progress: TierProgre
   const isMaxLevel = progress.next_tier === null;
   const ringStyle = { "--progress": `${percent}%` } as CSSProperties;
 
-  return <section className="journey-card">
-    <div className="journey-card-heading"><div><p className="eyebrow">ВАШ УРОВЕНЬ</p><h2>{isMaxLevel ? "Максимальный кешбэк" : `Путь к ${progress.next_tier?.cashback_percent}%`}</h2></div><span>{progress.current_tier.cashback_percent}%</span></div>
-    <div className="journey-card-body">
-      <div className="progress-ring" style={ringStyle} aria-label={isMaxLevel ? "Достигнут максимальный уровень" : `Прогресс до следующего уровня: ${percent.toFixed(0)}%`}><div><strong>{isMaxLevel ? <Icon name="check" size={22} /> : <Icon name="sparkle" size={20} />}</strong><small>{isMaxLevel ? "готово" : "уровень"}</small></div></div>
-      <div className="journey-copy"><strong>{isMaxLevel ? "Вы на вершине программы" : <>Осталось купить на <Money value={progress.amount_to_next_tier} /></>}</strong><p>{isMaxLevel ? "Ваш максимальный кешбэк уже активен." : "Следующая покупка приблизит новый уровень."}</p></div>
-    </div>
-    <button type="button" className="journey-link" onClick={onProgram}><span>Все уровни и история баллов</span><i><Icon name="arrow" size={16} /></i></button>
-  </section>;
+  return <button type="button" className="benefit-progress-card" onClick={onProgram} aria-label={isMaxLevel ? "Открыть бонусную программу: максимальный уровень" : `Открыть бонусную программу: до следующего уровня осталось купить на ${progress.amount_to_next_tier}`}>
+    <div className="benefit-progress-heading"><p>Как получить больше выгоды?</p><i><Icon name="arrow" size={16} /></i></div>
+    <div className="benefit-progress-body"><div className="progress-ring" style={ringStyle}><div><strong>{isMaxLevel ? <Icon name="check" size={21} /> : `${percent.toFixed(0)}%`}</strong><small>{isMaxLevel ? "максимум" : "пройдено"}</small></div></div><div><strong>{isMaxLevel ? "Максимальный кешбэк уже активен" : <>Купите ещё на <Money value={progress.amount_to_next_tier} /></>}</strong><small>{isMaxLevel ? `${progress.current_tier.cashback_percent}% на все покупки` : `и получите ${progress.next_tier?.cashback_percent}% кешбэка`}</small></div></div>
+  </button>;
 }
