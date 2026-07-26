@@ -48,9 +48,19 @@ export function ProfilePanel({ profile, onProfile, onNotice }: {
 
   return <section className="customer-dashboard">
     <section className="loyalty-summary-grid" aria-label="Лояльность">
-      <article className="loyalty-tile points-tile"><p>Мои баллы</p><strong><Money value={profile.current_balance} /></strong><small>Доступно к списанию</small></article>
-      <button type="button" className="loyalty-tile cashback-tile" onClick={() => setShowCode(true)}><span className="cashback-tile-icon"><Icon name="code" size={19} /></span><p>Кешбэк</p><strong>{profile.tier.cashback_percent}%</strong><small>Нажмите для кода</small></button>
-      <button type="button" className="program-tile" onClick={() => setShowProgram(true)}><span className="program-tile-icon"><Icon name="gift" size={21} /></span><span><strong>Бонусная программа</strong><small>Уровни, баллы и правила</small></span><i><Icon name="arrow" size={18} /></i></button>
+      <article className="loyalty-tile points-tile">
+        <div className="tile-title-row"><p>Мои баллы</p><span><Icon name="sparkle" size={13} /></span></div>
+        <strong><Money value={profile.current_balance} /></strong>
+        <small>Доступно к списанию</small>
+      </article>
+      <button type="button" className="loyalty-tile cashback-tile" onClick={() => setShowCode(true)}>
+        <span className="cashback-code-mark" aria-hidden="true"><i /><i /><i /><span><Icon name="sparkle" size={22} /></span></span>
+        <span className="cashback-copy"><small>Ваш кешбэк</small><strong>{profile.tier.cashback_percent}%</strong><em>Получить код <Icon name="arrow" size={15} /></em></span>
+      </button>
+      <button type="button" className="program-tile" onClick={() => setShowProgram(true)}>
+        <span className="program-copy"><small>VELINA CLUB</small><strong>Бонусная<br />программа</strong></span>
+        <i><Icon name="arrow" size={19} /></i>
+      </button>
     </section>
 
     <section className="benefit-carousel" aria-label="Больше выгод">
