@@ -5,7 +5,7 @@ import { RegistrationPanel } from "../features/registration/ui/RegistrationPanel
 import { SaleWorkspace } from "../features/sale/ui/SaleWorkspace";
 import { api, ApiError } from "../shared/api/client";
 import { errorMessage } from "../shared/lib/format";
-import { getTelegramApp } from "../shared/lib/telegram";
+import { getTelegramApp, syncTelegramAppearance } from "../shared/lib/telegram";
 import { Icon } from "../shared/ui/Icon";
 import { SectionTile } from "../shared/ui/SectionTile";
 import { OwnerDashboard } from "../widgets/admin/ui/OwnerDashboard";
@@ -25,6 +25,7 @@ export default function App() {
     const telegram = getTelegramApp();
     telegram?.ready();
     telegram?.expand();
+    const stopSyncingAppearance = syncTelegramAppearance();
     const load = async (): Promise<void> => {
       setLoading(true);
       const [profileResult, accessResult] = await Promise.allSettled([
@@ -49,6 +50,7 @@ export default function App() {
       setLoading(false);
     };
     void load();
+    return stopSyncingAppearance;
   }, []);
 
   const role = profile?.admin_role ?? adminRole;
