@@ -104,31 +104,32 @@ a { color: var(--brand); font-weight: 700; text-underline-offset: 2px; }
 .benefit-carousel { display: flex; gap: 12px; overflow-x: auto; margin-right: -16px; padding: 1px 16px 5px 0; scroll-snap-type: x mandatory; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
 .benefit-carousel::-webkit-scrollbar { display: none; }
 .benefit-progress-card, .birthday-benefit-card { display: grid; min-width: min(86vw, 340px); flex: 0 0 min(86vw, 340px); min-height: 188px; scroll-snap-align: start; border: 0; border-radius: 22px; text-align: left; }
-.benefit-progress-card { align-content: space-between; padding: 20px; color: var(--on-tile); background: var(--tile-dark); transition: transform .18s ease, background .18s ease; }
+.benefit-progress-card { align-content: start; gap: 15px; padding: 20px; color: var(--on-tile); background: var(--tile-dark); transition: transform .18s ease, background .18s ease; }
 .benefit-progress-card:hover { background: color-mix(in srgb, var(--tile-dark) 92%, var(--brand)); transform: translateY(-1px); }
 .benefit-progress-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .benefit-progress-heading p { margin: 0; max-width: 270px; color: var(--on-tile); font-size: 15px; font-weight: 700; line-height: 1.2; }
 .benefit-progress-body { display: grid; grid-template-columns: 80px minmax(0, 1fr); align-items: center; gap: 16px; }
 .progress-ring { display: grid; width: 80px; height: 80px; place-items: center; border-radius: 50%; background: conic-gradient(var(--brand) var(--progress), rgb(245 255 252 / 13%) 0); }
-.progress-ring > div { display: grid; width: 64px; height: 64px; place-items: center; align-content: center; border-radius: 50%; background: var(--tile-dark); text-align: center; }
+.progress-ring > div { display: grid; width: 64px; height: 64px; place-items: center; align-content: center; gap: 3px; border-radius: 50%; background: var(--tile-dark); text-align: center; }
 .progress-ring strong { display: grid; place-items: center; color: var(--brand); font-size: 17px; font-weight: 780; letter-spacing: -.06em; line-height: 1; }
 .progress-ring small { margin-top: 5px; color: rgb(245 255 252 / 52%); font-size: 7px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; }
 .benefit-progress-body > div:last-child { display: grid; gap: 5px; }
 .benefit-progress-body > div:last-child > strong { color: var(--on-tile); font-size: 15px; font-weight: 700; letter-spacing: -.025em; line-height: 1.2; }
 .benefit-progress-body > div:last-child > small { color: rgb(245 255 252 / 58%); font-size: 10px; line-height: 1.35; }
-.birthday-benefit-card { position: relative; overflow: hidden; grid-template-columns: minmax(0, 1fr) 118px; align-items: end; gap: 4px; padding: 20px; color: var(--ink); background: var(--brand-soft); }
-.birthday-benefit-card > div { display: grid; position: relative; z-index: 1; align-content: end; gap: 6px; }
+.birthday-benefit-card { position: relative; overflow: hidden; grid-template-columns: minmax(0, 1fr) 112px; align-items: center; gap: 4px; padding: 20px; color: var(--ink); background: var(--brand-soft); }
+.birthday-benefit-card > div { display: grid; position: relative; z-index: 1; align-content: center; gap: 6px; }
 .birthday-benefit-card p { margin: 0; color: var(--brand-dark); font-size: 14px; font-weight: 700; line-height: 1.2; }
 .birthday-benefit-card strong { color: var(--ink); font-size: 20px; font-weight: 900; letter-spacing: -.035em; line-height: 1.05; }
 .birthday-benefit-card small { color: var(--muted); font-size: 10px; line-height: 1.35; }
-.birthday-benefit-card img { width: 122px; max-width: 100%; align-self: center; justify-self: end; transform: translate(9px, 8px); }
+.birthday-benefit-card img { width: 142px; max-width: none; align-self: center; justify-self: end; transform: translate(21px, 5px); }
 .birthday-benefit-card.active { background: color-mix(in srgb, var(--brand) 42%, var(--surface)); }
 .customer-utility-row { display: grid; grid-template-columns: minmax(0, 1fr) 42px; gap: 8px; }
 .customer-utility-row > button { display: flex; min-height: 50px; align-items: center; justify-content: space-between; gap: 9px; padding: 10px 13px; border: 0; border-radius: 16px; color: var(--ink-soft); background: var(--surface); font-size: 11px; font-weight: 700; text-align: left; transition: background .18s ease; }
 .customer-utility-row > button:hover { background: var(--brand-soft); }
 .customer-utility-row > button > span { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
 .customer-utility-row > button > .icon { color: var(--brand); }
-.customer-utility-row .profile-utility-button { display: grid; width: 42px; place-items: center; padding: 0; color: var(--brand-dark); background: var(--brand-soft); }
+.customer-utility-row > .profile-utility-button { display: grid; width: 42px; align-items: center; justify-content: center; justify-items: center; padding: 0; color: var(--brand-dark); background: var(--brand-soft); }
+.customer-utility-row > .profile-utility-button .icon { margin: auto; }
 .customer-member-note { margin: -10px 3px 0; color: var(--muted); font-size: 10px; }
 
 /* Generic controls and fields */
@@ -308,7 +309,7 @@ a { color: var(--brand); font-weight: 700; text-underline-offset: 2px; }
 .modal-topline { display: grid; position: sticky; z-index: 3; top: 0; grid-template-columns: 42px minmax(0, 1fr); align-items: center; gap: 11px; min-height: 74px; margin: 0; padding: max(14px, calc(8px + var(--tg-content-safe-area-inset-top, 0px))) 16px 12px; border-bottom: 1px solid var(--line); background: rgb(0 0 0 / 94%); backdrop-filter: blur(14px); }
 .modal-topline > div { display: grid; min-width: 0; align-content: center; }
 .modal-topline .overline { margin-bottom: 3px; }
-.modal-topline h2 { overflow: hidden; margin: 0; color: var(--ink); font-size: 19px; font-weight: 700; letter-spacing: -.035em; line-height: 1.12; text-overflow: ellipsis; white-space: nowrap; }
+.modal-topline h2 { overflow: hidden; margin: 0; color: var(--ink); font-size: 21px; font-weight: 700; letter-spacing: -.035em; line-height: 1.08; text-overflow: ellipsis; white-space: nowrap; }
 .modal-close { width: 40px; height: 40px; color: var(--ink-soft); background: var(--surface); }
 .modal-close:hover { color: var(--ink); background: var(--surface-tint); }
 .modal-page-content { width: min(100%, 680px); min-height: calc(100% - 74px); margin: 0 auto; padding: 20px 16px max(34px, calc(20px + var(--tg-content-safe-area-inset-bottom, 0px))); }
@@ -352,23 +353,19 @@ a { color: var(--brand); font-weight: 700; text-underline-offset: 2px; }
 .tier-progress-line { overflow: hidden; height: 3px; border-radius: 999px; background: #101312; }
 .tier-progress-line i { display: block; height: 100%; border-radius: inherit; background: var(--brand); transition: width .35s cubic-bezier(.22, .8, .2, 1); }
 .tier-unlock > span { color: var(--ink); font-size: 11px; font-weight: 700; }
-.program-rules { display: grid; gap: 8px; margin-top: 14px; padding: 14px; border-radius: 16px; background: var(--surface-soft); }
-.program-rules span { display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 11px; font-weight: 650; }
-.program-rules .icon { color: var(--brand); }
-
 .balance-history-summary { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; margin-bottom: 15px; padding: 16px; border-radius: 18px; color: var(--on-brand); background: var(--brand); }
 .balance-history-summary span { font-size: 10px; font-weight: 700; }
 .balance-history-summary strong { color: var(--on-brand); font-size: 28px; font-weight: 900; letter-spacing: -.04em; line-height: 1; }
 .transaction-list { display: grid; }
-.transaction-list li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 9px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.transaction-list li { display: grid; min-height: 58px; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 11px; padding: 11px 0; border-bottom: 1px solid var(--line); }
 .transaction-list li:last-child { border-bottom: 0; }
 .transaction-icon { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 9px; }
 .transaction-icon.accrual { color: var(--positive); background: var(--positive-soft); }
 .transaction-icon.redemption { color: var(--danger); background: var(--danger-soft); }
-.transaction-list div { display: grid; min-width: 0; gap: 2px; }
-.transaction-list strong { color: var(--ink-soft); font-size: 11px; }
-.transaction-list small { overflow: hidden; color: var(--muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
-.transaction-list em { font-size: 11px; font-style: normal; font-weight: 750; white-space: nowrap; }
+.transaction-list div { display: grid; min-width: 0; align-content: center; gap: 4px; }
+.transaction-list strong { color: var(--ink-soft); font-size: 13px; line-height: 1.2; }
+.transaction-list small { overflow: hidden; color: var(--muted); font-size: 10px; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
+.transaction-list em { align-self: center; font-size: 13px; font-style: normal; font-weight: 750; white-space: nowrap; }
 .transaction-list em.accrual { color: var(--positive); }
 .transaction-list em.redemption { color: var(--danger); }
 

@@ -20,7 +20,7 @@ export function BonusHistoryModal({ balance, onClose, onNotice }: {
       .catch((error: unknown) => onNotice(errorMessage(error)));
   }, [onNotice]);
 
-  return <Modal title="История баллов" eyebrow="МОИ БАЛЛЫ" onClose={onClose}>
+  return <Modal title="История баллов" onClose={onClose}>
     <section className="balance-history-summary"><span>Текущий баланс</span><strong><Money value={balance} /></strong></section>
     {!transactions ? <div className="modal-loader"><span className="loader" />Загружаем историю…</div>
       : transactions.items.length === 0

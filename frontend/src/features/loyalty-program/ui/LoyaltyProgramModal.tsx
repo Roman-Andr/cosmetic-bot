@@ -52,7 +52,6 @@ export function LoyaltyProgramModal({ profile, onClose }: {
           </div>}
         </li>;
       })}</ul>
-      <div className="program-rules"><span><Icon name="chart" size={16} />Уровень зависит от общего оборота.</span><span><Icon name="gift" size={16} />Бонусы не сгорают.</span><span><Icon name="check" size={16} />Списываем до 10% заказа.</span></div>
     </section>
   </Modal>;
 }
