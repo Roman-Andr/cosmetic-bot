@@ -1,111 +1,58 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
-
-import type { BonusTransactionPage, Profile } from "../../../entities/loyalty/model/types";
-import { api } from "../../../shared/api/client";
-import { errorMessage, formatDate } from "../../../shared/lib/format";
+import type { Profile } from "../../../entities/loyalty/model/types";
 import { Icon } from "../../../shared/ui/Icon";
 import { Modal } from "../../../shared/ui/Modal";
 import { Money } from "../../../shared/ui/Money";
 
-type ProgramView = "levels" | "history";
+function tierTitle(index: number, total: number): string {
+  if (index === 0) return "Базовый";
+  if (index === total - 1) return "Премиум";
+  if (total === 3) return "Стандарт";
+  return `Уровень ${index + 1}`;
+}
 
-export function LoyaltyProgramModal({ profile, onClose, onNotice }: {
+export function LoyaltyProgramModal({ profile, onClose }: {
   profile: Profile;
   onClose: () => void;
-  onNotice: (message: string | null) => void;
 }) {
-  const [view, setView] = useState<ProgramView>("levels");
-  const [transactions, setTransactions] = useState<BonusTransactionPage | null>(null);
-  const [paneHeight, setPaneHeight] = useState<number | null>(null);
-  const levelsPaneRef = useRef<HTMLElement>(null);
-  const historyPaneRef = useRef<HTMLElement>(null);
   const progress = profile.tier_progress;
-  const isMaxLevel = progress.next_tier === null;
+  const turnover = Number(profile.lifetime_turnover);
+  const currentTierIndex = progress.tiers.findIndex((tier) =>
+    Number(tier.minimum_turnover) === Number(progress.current_tier.minimum_turnover)
+    && Number(tier.cashback_percent) === Number(progress.current_tier.cashback_percent));
 
-  useEffect(() => {
-    void api.get<BonusTransactionPage>("/loyalty/transactions").then(setTransactions).catch((error: unknown) => onNotice(errorMessage(error)));
-  }, [onNotice]);
+  return <Modal title="Программа лояльности" onClose={onClose}>
+    <section className="program-levels-view">
+      <div className="program-pane-heading"><div><p className="overline">СТАТУСЫ</p><h3>Уровни программы</h3></div></div>
+      <ul className="tier-status-list">{progress.tiers.map((tier, index) => {
+        const isCurrent = index === currentTierIndex;
+        const isReached = currentTierIndex >= 0
+          ? index <= currentTierIndex
+          : Number(tier.minimum_turnover) <= Number(progress.current_tier.minimum_turnover);
+        const threshold = Number(tier.minimum_turnover);
+        const previousThreshold = index === 0 ? 0 : Number(progress.tiers[index - 1].minimum_turnover);
+        const tierRange = threshold - previousThreshold;
+        const unlockProgress = tierRange <= 0 ? 100 : Math.min(100, Math.max(0, ((turnover - previousThreshold) / tierRange) * 100));
+        const amountRemaining = Math.max(0, threshold - turnover);
+        const stateClass = isCurrent ? "current" : isReached ? "reached" : "locked";
 
-  useLayoutEffect(() => {
-    const activePane = view === "levels" ? levelsPaneRef.current : historyPaneRef.current;
-    if (!activePane) return;
-
-    const updateHeight = () => {
-      const nextHeight = activePane.offsetHeight;
-      setPaneHeight((currentHeight) => currentHeight === nextHeight ? currentHeight : nextHeight);
-    };
-    updateHeight();
-
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(updateHeight);
-    observer.observe(activePane);
-    return () => observer.disconnect();
-  }, [view]);
-
-  return <Modal title="Программа лояльности" eyebrow="VELINA CLUB" onClose={onClose}>
-    <section className="program-summary">
-      <span className="program-summary-icon"><Icon name="gift" /></span>
-      <div><span>Ваш активный уровень</span><strong>{profile.tier.cashback_percent}% кешбэка</strong><p>{isMaxLevel ? "Вы достигли максимального уровня." : <>До следующего уровня осталось <Money value={progress.amount_to_next_tier} />.</>}</p></div>
+        return <li className={`tier-status-card ${stateClass}`} key={`${tier.minimum_turnover}-${tier.cashback_percent}`}>
+          <div className="tier-status-head">
+            <div className="tier-status-name">
+              <span><Icon name={isReached ? "check" : "lock"} size={15} /></span>
+              <div><strong>{tierTitle(index, progress.tiers.length)}</strong><small>{isCurrent ? "Активный уровень" : isReached ? "Уровень открыт" : "Пока недоступен"}</small></div>
+            </div>
+            <span className="tier-reward"><b>{tier.cashback_percent}%</b><small>кешбэк</small></span>
+          </div>
+          <p>Начисляется на сумму, оплаченную деньгами</p>
+          {isCurrent && <div className="tier-status-note"><Icon name="sparkle" size={14} />Действует для следующих покупок</div>}
+          {isReached && !isCurrent && <div className="tier-status-note"><Icon name="check" size={14} />Открыт при обороте от <Money value={tier.minimum_turnover} /></div>}
+          {!isReached && <div className="tier-unlock">
+            <div className="tier-progress-line"><i style={{ width: `${unlockProgress}%` }} /></div>
+            <span>Купите ещё на <Money value={amountRemaining} /></span>
+          </div>}
+        </li>;
+      })}</ul>
+      <div className="program-rules"><span><Icon name="chart" size={16} />Уровень зависит от общего оборота.</span><span><Icon name="gift" size={16} />Бонусы не сгорают.</span><span><Icon name="check" size={16} />Списываем до 10% заказа.</span></div>
     </section>
-
-    <div className={`modal-tabs ${view === "history" ? "history-active" : ""}`} role="tablist" aria-label="Разделы программы лояльности">
-      <button
-        id="program-levels-tab"
-        className={view === "levels" ? "active" : ""}
-        type="button"
-        role="tab"
-        aria-controls="program-levels-panel"
-        aria-selected={view === "levels"}
-        onClick={() => setView("levels")}
-      >
-        Уровни
-      </button>
-      <button
-        id="program-history-tab"
-        className={view === "history" ? "active" : ""}
-        type="button"
-        role="tab"
-        aria-controls="program-history-panel"
-        aria-selected={view === "history"}
-        onClick={() => setView("history")}
-      >
-        Баллы
-      </button>
-    </div>
-
-    <div className={`program-panels ${view === "history" ? "show-history" : ""}`} style={paneHeight ? { height: `${paneHeight}px` } : undefined}>
-      <div className="program-pane-track">
-        <section
-          id="program-levels-panel"
-          ref={levelsPaneRef}
-          className={`program-pane ${view === "levels" ? "active" : ""}`}
-          role="tabpanel"
-          aria-labelledby="program-levels-tab"
-          aria-hidden={view !== "levels"}
-        >
-          <div className="program-pane-heading"><div><p className="overline">ВАШ ПУТЬ</p><h3>Как растёт кешбэк</h3></div><span>{isMaxLevel ? "MAX" : `до ${progress.next_tier?.cashback_percent}%`}</span></div>
-          <ul className="tier-ladder modal-tier-ladder">{progress.tiers.map((tier) => {
-            const isCurrent = tier.minimum_turnover === progress.current_tier.minimum_turnover && tier.cashback_percent === progress.current_tier.cashback_percent;
-            const isReached = Number(tier.minimum_turnover) <= Number(progress.current_tier.minimum_turnover);
-            return <li className={`${isCurrent ? "current" : ""}${isReached ? " reached" : ""}`} key={`${tier.minimum_turnover}-${tier.cashback_percent}`}><i>{isReached ? <Icon name="check" size={13} /> : null}</i><span>от <Money value={tier.minimum_turnover} /></span><b>{tier.cashback_percent}%</b></li>;
-          })}</ul>
-          <div className="program-rules"><span><Icon name="chart" size={16} />Уровень зависит от общего оборота.</span><span><Icon name="gift" size={16} />Бонусы не сгорают.</span><span><Icon name="check" size={16} />Списываем до 10% заказа.</span></div>
-        </section>
-        <section
-          id="program-history-panel"
-          ref={historyPaneRef}
-          className={`program-pane ${view === "history" ? "active" : ""}`}
-          role="tabpanel"
-          aria-labelledby="program-history-tab"
-          aria-hidden={view !== "history"}
-        >
-          <div className="program-pane-heading"><div><p className="overline">ВАШ БАЛАНС</p><h3>История баллов</h3></div><span className="soft-icon"><Icon name="chart" size={18} /></span></div>
-          {!transactions ? <div className="modal-loader"><span className="loader" />Загружаем историю…</div> : transactions.items.length === 0 ? <div className="empty-state compact-empty"><span><Icon name="gift" /></span><h3>Операций пока нет</h3><p>Здесь появятся начисления и списания бонусов.</p></div> : <ul className="transaction-list">{transactions.items.map((transaction) => {
-            const isAccrual = transaction.operation_type === "accrual";
-            return <li key={transaction.id}><span className={`transaction-icon ${isAccrual ? "accrual" : "redemption"}`}><Icon name={isAccrual ? "plus" : "arrow"} size={16} /></span><div><strong>{isAccrual ? "Начислено бонусов" : "Списано бонусов"}</strong><small>{formatDate(transaction.created_at)} · баланс <Money value={transaction.balance_after} /></small></div><em className={isAccrual ? "accrual" : "redemption"}><Money prefix={isAccrual ? "+" : "−"} value={Math.abs(Number(transaction.amount))} /></em></li>;
-          })}</ul>}
-        </section>
-      </div>
-    </div>
   </Modal>;
 }

@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 
 import type { Profile } from "../../../entities/loyalty/model/types";
+import { BonusHistoryModal } from "../../../features/bonus-history/ui/BonusHistoryModal";
 import { BirthdayInfoModal } from "../../../features/birthday/ui/BirthdayInfoModal";
 import { LoyaltyCodeModal } from "../../../features/loyalty-code/ui/LoyaltyCodeCard";
 import { LoyaltyProgramModal } from "../../../features/loyalty-program/ui/LoyaltyProgramModal";
@@ -25,6 +26,7 @@ export function ProfilePanel({ profile, onProfile, onNotice }: {
   const [showPurchases, setShowPurchases] = useState(false);
   const [showBirthday, setShowBirthday] = useState(false);
   const [showCode, setShowCode] = useState(false);
+  const [showBalanceHistory, setShowBalanceHistory] = useState(false);
   const [showAccount, setShowAccount] = useState(false);
   const firstName = profile.full_name.trim().split(/\s+/)[0] || "друг";
 
@@ -48,17 +50,16 @@ export function ProfilePanel({ profile, onProfile, onNotice }: {
 
   return <section className="customer-dashboard">
     <section className="loyalty-summary-grid" aria-label="Лояльность">
-      <article className="loyalty-tile points-tile">
-        <div className="tile-title-row"><p>Мои баллы</p><span><Icon name="sparkle" size={13} /></span></div>
+      <button type="button" className="loyalty-tile points-tile" onClick={() => setShowBalanceHistory(true)}>
+        <div className="tile-title-row"><p>Мои баллы</p><span><Icon name="arrow" size={14} /></span></div>
         <strong><Money value={profile.current_balance} /></strong>
-        <small>Доступно к списанию</small>
-      </article>
+      </button>
       <button type="button" className="loyalty-tile cashback-tile" onClick={() => setShowCode(true)}>
         <span className="cashback-code-mark" aria-hidden="true"><i /><i /><i /><span><Icon name="sparkle" size={22} /></span></span>
         <span className="cashback-copy"><small>Ваш кешбэк</small><strong>{profile.tier.cashback_percent}%</strong><em>Получить код <Icon name="arrow" size={15} /></em></span>
       </button>
       <button type="button" className="program-tile" onClick={() => setShowProgram(true)}>
-        <span className="program-copy"><small>VELINA CLUB</small><strong>Бонусная<br />программа</strong></span>
+        <span className="program-copy"><strong>Бонусная<br />программа</strong></span>
         <i><Icon name="arrow" size={19} /></i>
       </button>
     </section>
@@ -69,14 +70,15 @@ export function ProfilePanel({ profile, onProfile, onNotice }: {
     </section>
 
     <section className="customer-utility-row"><button type="button" onClick={() => setShowPurchases(true)}><span><Icon name="bag" size={18} />История покупок</span><Icon name="arrow" size={17} /></button><button className="profile-utility-button" type="button" aria-label="Открыть данные профиля" onClick={openAccount}><Icon name="account" size={18} /></button></section>
-    <p className="customer-member-note">Участник Velina Club с {formatDate(profile.registered_at)}</p>
+    <p className="customer-member-note">В программе с {formatDate(profile.registered_at)}</p>
 
     {showCode && <LoyaltyCodeModal onClose={() => setShowCode(false)} onNotice={onNotice} />}
-    {showProgram && <LoyaltyProgramModal profile={profile} onClose={() => setShowProgram(false)} onNotice={onNotice} />}
+    {showProgram && <LoyaltyProgramModal profile={profile} onClose={() => setShowProgram(false)} />}
+    {showBalanceHistory && <BonusHistoryModal balance={profile.current_balance} onClose={() => setShowBalanceHistory(false)} onNotice={onNotice} />}
     {showPurchases && <PurchaseHistoryModal onClose={() => setShowPurchases(false)} onNotice={onNotice} />}
     {showBirthday && <BirthdayInfoModal profile={profile} onClose={() => setShowBirthday(false)} />}
     {showAccount && <Modal title="Ваши данные" eyebrow="ПРОФИЛЬ" onClose={() => setShowAccount(false)}>
-      <section className="account-modal-head"><span>{firstName.slice(0, 1).toUpperCase()}</span><div><strong>{profile.full_name}</strong><small>Участник Velina Club</small></div></section>
+      <section className="account-modal-head"><span>{firstName.slice(0, 1).toUpperCase()}</span><div><strong>{profile.full_name}</strong><small>Участник программы лояльности</small></div></section>
       <dl className="account-details"><div><dt>Телефон</dt><dd>{profile.phone}</dd></div><div><dt>Дата регистрации</dt><dd>{formatDate(profile.registered_at)}</dd></div><div><dt>Дата рождения</dt><dd>{formatDate(profile.birth_date)}</dd></div></dl>
       {editing ? <form className="form compact edit-profile" onSubmit={(event) => void updateName(event)}><label>ФИО<input value={fullName} onChange={(event) => setFullName(event.target.value)} /></label><div className="split-actions"><button className="secondary-action" type="button" onClick={() => { setFullName(profile.full_name); setEditing(false); }}>Отмена</button><button className="primary-action" disabled={saving}>{saving ? "Сохраняем…" : "Сохранить"}</button></div></form> : <button className="secondary-action account-edit" type="button" onClick={() => setEditing(true)}>Изменить ФИО</button>}
     </Modal>}

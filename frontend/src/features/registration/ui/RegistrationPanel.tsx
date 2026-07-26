@@ -49,7 +49,7 @@ export function RegistrationPanel({
     try {
       onProfile(await api.post<Profile>("/loyalty/register", { full_name: fullName, birth_date: birthDate, gender }));
       haptic("success");
-      onNotice("Добро пожаловать в Velina Club!");
+      onNotice("Регистрация завершена.");
     } catch (error) {
       haptic("error");
       onNotice(errorMessage(error));
@@ -59,7 +59,7 @@ export function RegistrationPanel({
   return <section className="onboarding">
     <section className="onboarding-intro">
       <span className="onboarding-symbol"><Icon name="sparkle" /></span>
-      <p className="eyebrow">VELINA CLUB</p>
+      <p className="eyebrow">ПРОГРАММА ЛОЯЛЬНОСТИ</p>
       <h1>Красота<br />возвращается.</h1>
       <p>Получайте кешбэк за покупки, повышайте уровень и забирайте 10% в праздничные дни.</p>
       <div className="onboarding-perks"><span>до <b>7%</b> по уровню</span><span><b>10%</b> ко дню рождения</span></div>
@@ -77,7 +77,7 @@ export function RegistrationPanel({
         </div>
         <label>Пол<select value={gender} onChange={(event) => setGender(event.target.value as "male" | "female")}><option value="female">Женский</option><option value="male">Мужской</option></select></label>
         <label className="check"><input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} /><span>Соглашаюсь с <a href={privacyUrl} target="_blank" rel="noreferrer">политикой конфиденциальности</a>.</span></label>
-        <button className="primary-action" disabled={!consent || submitting} type="submit">{submitting ? "Создаём профиль…" : "Активировать Velina Club"}<Icon name="arrow" /></button>
+        <button className="primary-action" disabled={!consent || submitting} type="submit">{submitting ? "Создаём профиль…" : "Активировать бонусный счёт"}<Icon name="arrow" /></button>
       </section>}
     </form>
   </section>;

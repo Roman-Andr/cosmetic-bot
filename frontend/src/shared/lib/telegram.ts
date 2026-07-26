@@ -31,11 +31,8 @@ export function syncTelegramAppearance(): () => void {
   if (!telegram) return () => undefined;
 
   const apply = (): void => {
-    const theme = telegram.themeParams;
-    const headerColor = theme.header_bg_color ?? theme.secondary_bg_color ?? theme.bg_color;
-    const backgroundColor = theme.secondary_bg_color ?? theme.bg_color;
-    if (headerColor) telegram.setHeaderColor?.(headerColor);
-    if (backgroundColor) telegram.setBackgroundColor?.(backgroundColor);
+    telegram.setHeaderColor?.("#000000");
+    telegram.setBackgroundColor?.("#000000");
   };
 
   apply();

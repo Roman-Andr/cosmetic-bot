@@ -73,20 +73,31 @@ export function OwnerDashboard({ onNotice }: { onNotice: (value: string | null) 
     </nav>
 
     {section === "overview" && <div className="owner-view">
-      <section className="metrics-board">{stats && <><div><span>Участники</span><strong>{stats.registrations}</strong></div><div><span>Покупки</span><strong>{stats.purchase_count}</strong></div><div><span>Оборот</span><strong><Money value={stats.turnover} /></strong></div><div><span>Баланс бонусов</span><strong><Money value={stats.bonus_liability} /></strong></div></>}</section>
+      <section className="metrics-board">{stats && <>
+        <div><span className="metric-icon"><Icon name="account" size={18} /></span><small>Участники</small><strong>{stats.registrations}</strong></div>
+        <div><span className="metric-icon"><Icon name="sale" size={18} /></span><small>Покупки</small><strong>{stats.purchase_count}</strong></div>
+        <div><span className="metric-icon"><Icon name="chart" size={18} /></span><small>Оборот</small><strong><Money value={stats.turnover} /></strong></div>
+        <div><span className="metric-icon"><Icon name="gift" size={18} /></span><small>Баланс бонусов</small><strong><Money value={stats.bonus_liability} /></strong></div>
+      </>}</section>
       <section className="owner-command-card"><div><p className="overline">БЫСТРЫЕ ДЕЙСТВИЯ</p><h2>Экспорт и команда</h2><p>Выгружайте данные или управляйте доступом Sales-администраторов.</p></div><div className="command-actions"><button type="button" onClick={() => void download("/admin/exports/customers", "customers.xlsx")}><Icon name="download" /><span>Клиенты</span><small>XLSX</small></button><button type="button" onClick={() => void download("/admin/exports/purchases", "purchases.xlsx")}><Icon name="download" /><span>Покупки</span><small>XLSX</small></button><button type="button" className="command-team" onClick={() => setShowAdministrators(true)}><Icon name="account" /><span>Команда</span><Icon name="arrow" size={16} /></button></div></section>
     </div>}
 
     {section === "customers" && <section className="owner-view owner-card">
       <div className="view-heading"><div><p className="overline">БАЗА КЛИЕНТОВ</p><h2>Найти клиента</h2><p>По ФИО, телефону или временному коду.</p></div><span className="soft-icon"><Icon name="search" /></span></div>
-      <form className="search-form" onSubmit={(event) => void search(event)}><input placeholder="Например, Анна или 123456" value={query} onChange={(event) => setQuery(event.target.value)} /><button className="primary-action">Найти</button></form>
+      <form className="search-form" onSubmit={(event) => void search(event)}><label className="admin-search-field"><Icon name="search" size={18} /><input aria-label="Поиск клиента" placeholder="Анна, телефон или код" value={query} onChange={(event) => setQuery(event.target.value)} /></label><button className="primary-action">Найти</button></form>
       {hasSearched && <ul className="customer-list">{customers.map((customer) => <li key={customer.customer_id}><button className="customer-row" type="button" onClick={() => void openCustomer(customer.customer_id)}><span>{customer.full_name}<small>{customer.phone} · с {formatDate(customer.registered_at)}</small></span><strong><Money value={customer.current_balance} /><Icon name="arrow" size={15} /></strong></button></li>)}</ul>}
       {hasSearched && customers.length === 0 && <div className="search-empty"><Icon name="search" /><strong>Клиенты не найдены</strong><span>Проверьте запрос и попробуйте ещё раз.</span></div>}
     </section>}
 
     {section === "settings" && <section className="owner-view owner-card">
       <div className="view-heading"><div><p className="overline">ПРАВИЛА ЛОЯЛЬНОСТИ</p><h2>Уровни кешбэка</h2><p>Изменения применятся к следующим покупкам.</p></div><span className="soft-icon"><Icon name="gift" /></span></div>
-      <div className="tier-editor">{tiers.map((tier, index) => <div className="tier-row" key={tier.id ?? index}><span className="tier-index">{index + 1}</span><label><small>Оборот от</small><input aria-label="Порог" type="number" min="0" step="0.01" value={tier.minimum_turnover} onChange={(event) => setTiers(tiers.map((item, itemIndex) => itemIndex === index ? { ...item, minimum_turnover: event.target.value } : item))} /><em><CurrencySymbol /></em></label><label><small>Кешбэк</small><input aria-label="Кешбэк" type="number" min="0" max="100" step="0.01" value={tier.cashback_percent} onChange={(event) => setTiers(tiers.map((item, itemIndex) => itemIndex === index ? { ...item, cashback_percent: event.target.value } : item))} /><em>%</em></label></div>)}</div>
+      <div className="tier-editor">{tiers.map((tier, index) => <section className="tier-config-card" key={tier.id ?? index}>
+        <header><span className="tier-index">{index + 1}</span><div><strong>Уровень {index + 1}</strong><small>Порог оборота и процент начисления</small></div></header>
+        <div className="tier-config-fields">
+          <label><span>Оборот от</span><input aria-label={`Порог уровня ${index + 1}`} type="number" min="0" step="0.01" value={tier.minimum_turnover} onChange={(event) => setTiers(tiers.map((item, itemIndex) => itemIndex === index ? { ...item, minimum_turnover: event.target.value } : item))} /><em><CurrencySymbol /></em></label>
+          <label><span>Кешбэк</span><input aria-label={`Кешбэк уровня ${index + 1}`} type="number" min="0" max="100" step="0.01" value={tier.cashback_percent} onChange={(event) => setTiers(tiers.map((item, itemIndex) => itemIndex === index ? { ...item, cashback_percent: event.target.value } : item))} /><em>%</em></label>
+        </div>
+      </section>)}</div>
       <button className="primary-action" disabled={savingTiers} onClick={() => void saveTiers()}>{savingTiers ? "Сохраняем…" : "Сохранить уровни"}<Icon name="check" /></button>
       <button className="team-link" type="button" onClick={() => setShowAdministrators(true)}><span><Icon name="account" />Sales-администраторы</span><Icon name="arrow" size={17} /></button>
     </section>}
@@ -101,7 +112,7 @@ function OwnerTab({ active, icon, label, onClick }: { active: boolean; icon: "ch
 }
 
 function CustomerModal({ customer, purchases, onClose }: { customer: CustomerDetail; purchases: PurchasePage | null; onClose: () => void }) {
-  return <Modal title="Карточка клиента" eyebrow="VELINA CLUB" onClose={onClose}>
+  return <Modal title="Карточка клиента" eyebrow="ПРОФИЛЬ" onClose={onClose}>
     <div className="customer-detail-head"><span>{customer.full_name.slice(0, 1).toUpperCase()}</span><div><strong>{customer.full_name}</strong><small>{customer.phone} · с {formatDate(customer.registered_at)}</small></div></div>
     <div className="customer-detail-metrics"><span>Баланс<b><Money value={customer.current_balance} /></b></span><span>Оборот<b><Money value={customer.lifetime_turnover} /></b></span></div>
     <h3 className="modal-section-title">Покупки</h3><ul className="purchase-list compact-list">{purchases?.items.length ? purchases.items.map((purchase) => <li key={purchase.id}><span className="purchase-date">{formatDate(purchase.created_at)}</span><strong><Money value={purchase.total_amount} /></strong><em><Money prefix="+" value={purchase.cashback_accrued} /></em></li>) : <li className="empty-list">Покупок пока нет.</li>}</ul>
@@ -130,7 +141,7 @@ function AdministratorsModal({ onClose, onNotice }: { onClose: () => void; onNot
   };
   return <Modal title="Команда" eyebrow="ДОСТУП К ПРОДАЖАМ" onClose={onClose}>
     <p className="muted">Sales-администратор может оформлять покупки в боте и Mini App, но не видит данные клиентов и настройки.</p>
-    <form className="administrator-form" onSubmit={(event) => void add(event)}><input inputMode="numeric" value={telegramId} onChange={(event) => setTelegramId(event.target.value.replace(/\D/g, ""))} placeholder="Telegram ID" /><button className="primary-action" disabled={adding}>{adding ? "Добавляем…" : "Добавить"}<Icon name="plus" /></button></form>
+    <form className="administrator-form" onSubmit={(event) => void add(event)}><label className="admin-search-field"><Icon name="account" size={18} /><input aria-label="Telegram ID" inputMode="numeric" value={telegramId} onChange={(event) => setTelegramId(event.target.value.replace(/\D/g, ""))} placeholder="Telegram ID" /></label><button className="primary-action" disabled={adding}>{adding ? "Добавляем…" : "Добавить"}<Icon name="plus" /></button></form>
     <ul className="administrator-list">{administrators?.map((admin) => <li key={admin.telegram_user_id}><span className={`role-dot ${admin.role}`} /><div><strong>{admin.role === "owner" ? "Главный администратор" : "Sales-администратор"}</strong><small>{admin.telegram_user_id}</small></div><em>{admin.is_active ? "Активен" : "Выключен"}</em></li>)}</ul>
   </Modal>;
 }

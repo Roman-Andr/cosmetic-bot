@@ -56,13 +56,10 @@ export default function App() {
   const role = profile?.admin_role ?? adminRole;
   const isOwner = role === "owner";
   const canSell = role === "sales" || isOwner;
-  if (loading) return <main className="screen loading-screen"><span className="loader" /><p>Открываем Velina Club…</p></main>;
+  if (loading) return <main className="screen loading-screen"><span className="loader" /><p>Открываем программу…</p></main>;
 
   return <main className="screen">
-    <header className="app-header">
-      <div className="brand-lockup"><span className="brand-mark">V</span><span><b>VELINA</b><small>CLUB</small></span></div>
-      {canSell && <span className="access-chip"><Icon name="shield" size={14} />{isOwner ? "Владелец" : "Sales"}</span>}
-    </header>
+    {canSell && <header className="app-header admin-header"><span className="access-chip"><Icon name="shield" size={14} />{isOwner ? "Владелец" : "Sales"}</span></header>}
     {notice && <button type="button" className="notice" role="alert" onClick={() => setNotice(null)}><span>{notice}</span><Icon name="close" size={18} /></button>}
     {profile ? <>
       {canSell && <nav className="workspace-tabs" aria-label="Разделы кабинета">

@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import type { Product, SalePreview, SaleRecord } from "../../../entities/loyalty/model/types";
 import { api } from "../../../shared/api/client";
@@ -19,20 +19,32 @@ export function SaleWorkspace({ onNotice }: { onNotice: (value: string | null) =
   const [searching, setSearching] = useState(false);
   const [previewing, setPreviewing] = useState(false);
   const [recording, setRecording] = useState(false);
+  const [productPickerOpen, setProductPickerOpen] = useState(false);
+  const productRequestId = useRef(0);
+  const productPickerRef = useRef<HTMLDetailsElement>(null);
 
-  const searchProducts = async (): Promise<void> => {
-    const value = query.trim();
-    if (!value) { setProducts([]); return; }
-    setSearching(true);
-    try { setProducts(await api.get<Product[]>(`/admin/products?query=${encodeURIComponent(value)}`)); }
-    catch (error) { onNotice(errorMessage(error)); }
-    finally { setSearching(false); }
-  };
+  useEffect(() => {
+    if (!productPickerOpen) {
+      productRequestId.current += 1;
+      setSearching(false);
+      return;
+    }
+
+    const requestId = ++productRequestId.current;
+    const timer = window.setTimeout(() => {
+      setSearching(true);
+      void api.get<Product[]>(`/admin/products?query=${encodeURIComponent(query.trim())}`)
+        .then((items) => { if (requestId === productRequestId.current) setProducts(items); })
+        .catch((error: unknown) => { if (requestId === productRequestId.current) onNotice(errorMessage(error)); })
+        .finally(() => { if (requestId === productRequestId.current) setSearching(false); });
+    }, query.trim() ? 180 : 0);
+
+    return () => window.clearTimeout(timer);
+  }, [onNotice, productPickerOpen, query]);
 
   const selectProduct = (product: Product): void => {
     if (selectedProducts.some((item) => item.external_id === product.external_id)) return;
     setSelectedProducts((items) => [...items, product]);
-    setProducts((items) => items.filter((item) => item.external_id !== product.external_id));
     haptic();
   };
 
@@ -73,7 +85,10 @@ export function SaleWorkspace({ onNotice }: { onNotice: (value: string | null) =
 
   const reset = (): void => {
     setBuyerCode(""); setAmount(""); setQuery(""); setProducts([]); setSelectedProducts([]); setSuccess(null);
+    if (productPickerRef.current) productPickerRef.current.open = false;
+    setProductPickerOpen(false);
   };
+  const availableProducts = products.filter((product) => !selectedProducts.some((selected) => selected.external_id === product.external_id));
 
   return <section className="sales-workspace">
     <header className="workspace-heading"><p className="eyebrow">РАБОЧЕЕ МЕСТО</p><h1>Новая покупка</h1><p>Введите код клиента и сумму — система сама рассчитает списание и кешбэк.</p></header>
@@ -82,12 +97,18 @@ export function SaleWorkspace({ onNotice }: { onNotice: (value: string | null) =
         <div className="sale-section-heading"><span>1</span><div><h2>Клиент и сумма</h2><p>Шестизначный код клиент получает в своём Mini App.</p></div></div>
         <div className="sale-input-grid"><label>Код клиента<input inputMode="numeric" pattern="[0-9]*" maxLength={6} value={buyerCode} onChange={(event) => setBuyerCode(event.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="000000" /></label><label>Сумма заказа<input inputMode="decimal" type="number" min="0.01" step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="0.00" /><span className="input-suffix"><CurrencySymbol /></span></label></div>
       </section>
-      <details className="product-picker">
+      <details ref={productPickerRef} className="product-picker" onToggle={(event) => setProductPickerOpen(event.currentTarget.open)}>
         <summary><span className="product-picker-icon"><Icon name="bag" size={18} /></span><span><strong>Добавить товары</strong><small>Необязательно, для истории заказа</small></span><em>{selectedProducts.length ? `${selectedProducts.length} выбрано` : "Опционально"}</em></summary>
         <div className="product-picker-content">
           {selectedProducts.length > 0 && <ul className="selected-products">{selectedProducts.map((product) => <li key={product.external_id}><span><b>{product.title}</b>{product.current_price && <small><Money value={product.current_price} /></small>}</span><button type="button" aria-label={`Убрать ${product.title}`} onClick={() => removeProduct(product.external_id)}><Icon name="close" size={17} /></button></li>)}</ul>}
-          <div className="product-search"><input value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void searchProducts(); } }} placeholder="Название или артикул" /><button type="button" className="icon-button pale" aria-label="Найти товар" onClick={() => void searchProducts()} disabled={searching}><Icon name="search" /></button></div>
-          {products.length > 0 && <ul className="product-results">{products.map((product) => <li key={product.external_id}><button type="button" onClick={() => selectProduct(product)}><span><b>{product.title}</b><small>{product.external_id}{product.current_price && <> · <Money value={product.current_price} /></>}</small></span><Icon name="plus" size={18} /></button></li>)}</ul>}
+          <div className="product-combobox">
+            <div className="product-search"><Icon name="search" size={18} /><input role="combobox" aria-autocomplete="list" aria-expanded={productPickerOpen} aria-controls="product-options" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Начните вводить название" />{searching && <span className="field-loader" aria-label="Поиск" />}</div>
+            <div className="product-dropdown">
+              {availableProducts.length > 0
+                ? <ul id="product-options" className="product-results" role="listbox">{availableProducts.map((product) => <li key={product.external_id}><button type="button" role="option" aria-selected={false} onClick={() => selectProduct(product)}><span><b>{product.title}</b><small>{product.external_id}{product.current_price && <> · <Money value={product.current_price} /></>}</small></span><Icon name="plus" size={18} /></button></li>)}</ul>
+                : <div className="product-empty">{searching ? "Загружаем товары…" : query.trim() ? "По вашему запросу ничего не найдено." : "В каталоге пока нет доступных товаров."}</div>}
+            </div>
+          </div>
         </div>
       </details>
       <button className="primary-action sale-submit" disabled={previewing} type="submit">{previewing ? "Считаем бонусы…" : "Рассчитать заказ"}<Icon name="arrow" /></button>

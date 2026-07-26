@@ -87,22 +87,22 @@ async def get_admin_access(admin: SalesAdminDependency) -> AdminAccessResponse:
 async def search_products(
     session: SessionDependency,
     _: SalesAdminDependency,
-    query: str = Query(min_length=1, max_length=100),
+    query: str = Query(default="", max_length=100),
 ) -> list[ProductResponse]:
-    """Search the local Google Sheets snapshot for optional sale items."""
+    """List active products and optionally filter them for the sale selector."""
+    term = query.strip()
+    statement = select(Product).where(Product.is_active.is_(True))
+    if term:
+        statement = statement.where(
+            or_(
+                Product.title.ilike(f"%{term}%"),
+                Product.external_id.ilike(f"%{term}%"),
+            )
+        )
     products = list(
         (
             await session.scalars(
-                select(Product)
-                .where(
-                    Product.is_active.is_(True),
-                    or_(
-                        Product.title.ilike(f"%{query.strip()}%"),
-                        Product.external_id.ilike(f"%{query.strip()}%"),
-                    ),
-                )
-                .order_by(Product.title)
-                .limit(15)
+                statement.order_by(Product.title).limit(30)
             )
         ).all()
     )
