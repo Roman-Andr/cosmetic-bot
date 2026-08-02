@@ -1,6 +1,6 @@
-import { useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 
-import type { Profile } from "../../../entities/loyalty/model/types";
+import type { BonusTransactionPage, Profile } from "../../../entities/loyalty/model/types";
 import { BonusHistoryModal } from "../../../features/bonus-history/ui/BonusHistoryModal";
 import { BirthdayInfoModal } from "../../../features/birthday/ui/BirthdayInfoModal";
 import { LoyaltyCodeModal } from "../../../features/loyalty-code/ui/LoyaltyCodeCard";
@@ -8,8 +8,9 @@ import { LoyaltyProgramModal } from "../../../features/loyalty-program/ui/Loyalt
 import { PurchaseHistoryModal } from "../../../features/purchase-history/ui/PurchaseHistoryModal";
 import { TierProgressCard } from "../../../features/tier-progress/ui/TierProgressCard";
 import { api } from "../../../shared/api/client";
-import { errorMessage, formatDate } from "../../../shared/lib/format";
+import { errorMessage, formatAmount, formatDate } from "../../../shared/lib/format";
 import { haptic } from "../../../shared/lib/telegram";
+import type { NoticeHandler } from "../../../shared/model/notice";
 import { Icon } from "../../../shared/ui/Icon";
 import { Modal } from "../../../shared/ui/Modal";
 import { Money } from "../../../shared/ui/Money";
@@ -17,7 +18,7 @@ import { Money } from "../../../shared/ui/Money";
 export function ProfilePanel({ profile, onProfile, onNotice }: {
   profile: Profile;
   onProfile: (value: Profile) => void;
-  onNotice: (value: string | null) => void;
+  onNotice: NoticeHandler;
 }) {
   const [fullName, setFullName] = useState(profile.full_name);
   const [editing, setEditing] = useState(false);
@@ -28,7 +29,59 @@ export function ProfilePanel({ profile, onProfile, onNotice }: {
   const [showCode, setShowCode] = useState(false);
   const [showBalanceHistory, setShowBalanceHistory] = useState(false);
   const [showAccount, setShowAccount] = useState(false);
+  const latestTransactionId = useRef<string | null>(null);
+  const syncing = useRef(false);
   const firstName = profile.full_name.trim().split(/\s+/)[0] || "друг";
+
+  const syncLoyaltyState = useCallback(async (): Promise<void> => {
+    if (syncing.current || document.visibilityState === "hidden") return;
+    syncing.current = true;
+    try {
+      const [freshProfile, transactionPage] = await Promise.all([
+        api.get<Profile>("/loyalty/me"),
+        api.get<BonusTransactionPage>("/loyalty/transactions?limit=10"),
+      ]);
+      onProfile(freshProfile);
+
+      const newestId = transactionPage.items[0]?.id ?? null;
+      if (latestTransactionId.current) {
+        const previousIndex = transactionPage.items.findIndex(
+          (transaction) => transaction.id === latestTransactionId.current,
+        );
+        const newTransactions = transactionPage.items.slice(
+          0,
+          previousIndex >= 0 ? previousIndex : transactionPage.items.length,
+        );
+        const accrued = newTransactions
+          .filter((transaction) => transaction.operation_type === "accrual")
+          .reduce((total, transaction) => total + Math.abs(Number(transaction.amount)), 0);
+        if (accrued > 0) {
+          haptic("success");
+          onNotice(`Начислено баллов: +${formatAmount(accrued)}. Баланс обновлён.`, "success");
+        }
+      }
+      latestTransactionId.current = newestId;
+    } catch {
+      // Background synchronization is best-effort; foreground actions report their own errors.
+    } finally {
+      syncing.current = false;
+    }
+  }, [onNotice, onProfile]);
+
+  useEffect(() => {
+    void syncLoyaltyState();
+    const timer = window.setInterval(() => void syncLoyaltyState(), 5000);
+    const syncWhenVisible = (): void => {
+      if (document.visibilityState === "visible") void syncLoyaltyState();
+    };
+    window.addEventListener("focus", syncWhenVisible);
+    document.addEventListener("visibilitychange", syncWhenVisible);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", syncWhenVisible);
+      document.removeEventListener("visibilitychange", syncWhenVisible);
+    };
+  }, [syncLoyaltyState]);
 
   const updateName = async (event: FormEvent): Promise<void> => {
     event.preventDefault();
@@ -37,7 +90,7 @@ export function ProfilePanel({ profile, onProfile, onNotice }: {
       onProfile(await api.patch<Profile>("/loyalty/me", { full_name: fullName }));
       setEditing(false);
       haptic("success");
-      onNotice("ФИО обновлено.");
+      onNotice("ФИО обновлено.", "success");
     } catch (error) { haptic("error"); onNotice(errorMessage(error)); }
     finally { setSaving(false); }
   };

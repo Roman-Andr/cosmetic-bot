@@ -4,13 +4,14 @@ import type { Administrator, CustomerDetail, CustomerSearchResult, PurchasePage,
 import { api, ApiError, download } from "../../../shared/api/client";
 import { errorMessage, formatDate } from "../../../shared/lib/format";
 import { haptic } from "../../../shared/lib/telegram";
+import type { NoticeHandler } from "../../../shared/model/notice";
 import { Icon } from "../../../shared/ui/Icon";
 import { Modal } from "../../../shared/ui/Modal";
 import { CurrencySymbol, Money } from "../../../shared/ui/Money";
 
 type OwnerSection = "overview" | "customers" | "settings";
 
-export function OwnerDashboard({ onNotice }: { onNotice: (value: string | null) => void }) {
+export function OwnerDashboard({ onNotice }: { onNotice: NoticeHandler }) {
   const [stats, setStats] = useState<Stats | null>(null);
   const [tiers, setTiers] = useState<Tier[]>([]);
   const [section, setSection] = useState<OwnerSection>("overview");
@@ -40,7 +41,7 @@ export function OwnerDashboard({ onNotice }: { onNotice: (value: string | null) 
     try {
       setTiers(await api.put<Tier[]>("/admin/tiers", { rules: tiers.map(({ minimum_turnover, cashback_percent }) => ({ minimum_turnover, cashback_percent })) }));
       haptic("success");
-      onNotice("Правила кешбэка сохранены.");
+      onNotice("Правила кешбэка сохранены.", "success");
     } catch (error) { haptic("error"); onNotice(errorMessage(error)); }
     finally { setSavingTiers(false); }
   };
@@ -119,7 +120,7 @@ function CustomerModal({ customer, purchases, onClose }: { customer: CustomerDet
   </Modal>;
 }
 
-function AdministratorsModal({ onClose, onNotice }: { onClose: () => void; onNotice: (value: string | null) => void }) {
+function AdministratorsModal({ onClose, onNotice }: { onClose: () => void; onNotice: NoticeHandler }) {
   const [administrators, setAdministrators] = useState<Administrator[] | null>(null);
   const [telegramId, setTelegramId] = useState("");
   const [adding, setAdding] = useState(false);
@@ -135,7 +136,7 @@ function AdministratorsModal({ onClose, onNotice }: { onClose: () => void; onNot
       setTelegramId("");
       await load();
       haptic("success");
-      onNotice("Sales-администратор добавлен.");
+      onNotice("Sales-администратор добавлен.", "success");
     } catch (error) { haptic("error"); onNotice(errorMessage(error)); }
     finally { setAdding(false); }
   };

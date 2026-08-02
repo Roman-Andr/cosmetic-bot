@@ -4,11 +4,12 @@ import type { BuyerLookup, Product, SalePreview, SaleRecord } from "../../../ent
 import { api, ApiError } from "../../../shared/api/client";
 import { errorMessage, formatDate } from "../../../shared/lib/format";
 import { haptic } from "../../../shared/lib/telegram";
+import type { NoticeHandler } from "../../../shared/model/notice";
 import { Icon } from "../../../shared/ui/Icon";
 import { Modal } from "../../../shared/ui/Modal";
 import { CurrencySymbol, Money } from "../../../shared/ui/Money";
 
-export function SaleWorkspace({ onNotice }: { onNotice: (value: string | null) => void }) {
+export function SaleWorkspace({ onNotice }: { onNotice: NoticeHandler }) {
   const [buyerCode, setBuyerCode] = useState("");
   const [amount, setAmount] = useState("");
   const [query, setQuery] = useState("");
@@ -193,9 +194,17 @@ function SaleConfirmation({ preview, products, onCancel, onConfirm, recording }:
 
 function SaleSuccess({ result, onClose }: { result: SaleRecord; onClose: () => void }) {
   return <Modal title="Покупка оформлена" eyebrow="ВСЁ ГОТОВО" variant="success" onClose={onClose}>
-    <div className="success-seal"><Icon name="check" size={28} /></div>
-    <p className="success-copy">Кешбэк <b><Money value={result.cashback_accrued} /></b> начислен. Клиент получит уведомление в Telegram.</p>
-    <div className="success-balance"><span>Баланс клиента теперь</span><strong><Money value={result.balance_after} /></strong></div>
+    <section className="success-hero">
+      <div className="success-seal"><Icon name="check" size={32} /></div>
+      <p className="success-kicker">ОПЕРАЦИЯ ПРОШЛА УСПЕШНО</p>
+      <h3>Баллы уже на счёте</h3>
+      <p className="success-copy">Покупка сохранена, а клиент получит подтверждение в Telegram.</p>
+    </section>
+    <dl className="success-summary">
+      <div><dt>Начислено</dt><dd><Money prefix="+" value={result.cashback_accrued} /></dd></div>
+      <div><dt>Новый баланс</dt><dd><Money value={result.balance_after} /></dd></div>
+    </dl>
+    <p className="success-note"><Icon name="check" size={18} />Можно переходить к следующему клиенту.</p>
     <button className="primary-action" onClick={onClose}>Оформить следующую покупку<Icon name="arrow" /></button>
   </Modal>;
 }

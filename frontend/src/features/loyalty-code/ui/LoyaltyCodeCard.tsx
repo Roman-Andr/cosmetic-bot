@@ -3,12 +3,13 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "../../../shared/api/client";
 import { errorMessage, formatTime } from "../../../shared/lib/format";
 import { haptic } from "../../../shared/lib/telegram";
+import type { NoticeHandler } from "../../../shared/model/notice";
 import { Icon } from "../../../shared/ui/Icon";
 import { Modal } from "../../../shared/ui/Modal";
 
 interface LoyaltyCode { code: string; expires_at: string; }
 
-export function LoyaltyCodeModal({ onClose, onNotice }: { onClose: () => void; onNotice: (value: string | null) => void }) {
+export function LoyaltyCodeModal({ onClose, onNotice }: { onClose: () => void; onNotice: NoticeHandler }) {
   const [code, setCode] = useState<LoyaltyCode | null>(null);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);

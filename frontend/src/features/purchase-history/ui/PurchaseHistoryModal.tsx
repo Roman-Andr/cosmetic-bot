@@ -3,11 +3,12 @@ import { useEffect, useState } from "react";
 import type { PurchasePage } from "../../../entities/loyalty/model/types";
 import { api } from "../../../shared/api/client";
 import { errorMessage, formatDate } from "../../../shared/lib/format";
+import type { NoticeHandler } from "../../../shared/model/notice";
 import { Icon } from "../../../shared/ui/Icon";
 import { Modal } from "../../../shared/ui/Modal";
 import { Money } from "../../../shared/ui/Money";
 
-export function PurchaseHistoryModal({ onClose, onNotice }: { onClose: () => void; onNotice: (value: string | null) => void }) {
+export function PurchaseHistoryModal({ onClose, onNotice }: { onClose: () => void; onNotice: NoticeHandler }) {
   const [purchases, setPurchases] = useState<PurchasePage | null>(null);
   useEffect(() => { void api.get<PurchasePage>("/loyalty/purchases").then(setPurchases).catch((error: unknown) => onNotice(errorMessage(error))); }, [onNotice]);
   return <Modal title="Ваши покупки" eyebrow="ИСТОРИЯ" onClose={onClose}>

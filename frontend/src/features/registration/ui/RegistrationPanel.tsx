@@ -4,6 +4,7 @@ import type { Profile } from "../../../entities/loyalty/model/types";
 import { api } from "../../../shared/api/client";
 import { errorMessage } from "../../../shared/lib/format";
 import { getTelegramApp, haptic } from "../../../shared/lib/telegram";
+import type { NoticeHandler } from "../../../shared/model/notice";
 import { Icon } from "../../../shared/ui/Icon";
 
 const privacyUrl = "https://velinacosmetic.by/privacy";
@@ -17,7 +18,7 @@ export function RegistrationPanel({
   contactReady: boolean;
   onContactReady: (value: boolean) => void;
   onProfile: (value: Profile) => void;
-  onNotice: (value: string | null) => void;
+  onNotice: NoticeHandler;
 }) {
   const [fullName, setFullName] = useState("");
   const [birthDate, setBirthDate] = useState("");
@@ -49,7 +50,7 @@ export function RegistrationPanel({
     try {
       onProfile(await api.post<Profile>("/loyalty/register", { full_name: fullName, birth_date: birthDate, gender }));
       haptic("success");
-      onNotice("Регистрация завершена.");
+      onNotice("Регистрация завершена. Бонусный счёт активирован.", "success");
     } catch (error) {
       haptic("error");
       onNotice(errorMessage(error));
