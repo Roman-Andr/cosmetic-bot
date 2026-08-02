@@ -21,7 +21,7 @@ ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 
-RUN groupadd --system app && useradd --system --gid app --home-dir /app app
+RUN groupadd --system --gid 999 app && useradd --system --uid 999 --gid app --home-dir /app app
 WORKDIR /app
 
 COPY --from=builder --chown=app:app /app/.venv /app/.venv

@@ -10,9 +10,17 @@ Install the audited files with root ownership:
 - `compose.production.yml` as `/srv/cosmetic-bot/compose.yml`;
 - `Caddyfile` as `/srv/cosmetic-bot/Caddyfile`;
 - `cosmetic-deploy` as `/usr/local/sbin/cosmetic-deploy`, mode `0755`;
-- application settings as `/etc/cosmetic-bot/app.env`, mode `0600`;
-- Google credentials as `/etc/cosmetic-bot/secrets/google-service-account.json`, mode `0600`;
-- Hysteria client config as `/etc/cosmetic-bot/secrets/hysteria.yaml`, mode `0600`.
+- application settings as `/etc/cosmetic-bot/app.env`, mode `0600`.
+
+`app.env` is read by the Docker CLI while composing, so root ownership is fine. The two secrets
+below are bind-mounted directly into their container's filesystem and read by that container's own
+unprivileged process, so they must be owned by the *container's* user, not `root`, or the container
+fails with `permission denied`:
+
+- Google credentials as `/etc/cosmetic-bot/secrets/google-service-account.json`, owned by `999:999`
+  (the backend image's `app` user), mode `0400`;
+- Hysteria client config as `/etc/cosmetic-bot/secrets/hysteria.yaml`, owned by `100:101`
+  (the Hysteria image's `hysteria` user), mode `0400`.
 
 The Hysteria config must listen on `0.0.0.0:1080` inside its isolated Compose network. Compose does
 not publish that port to the host. The backend uses `TELEGRAM_PROXY_URL=socks5://hysteria:1080`.

@@ -8,8 +8,8 @@ RUN apk add --no-cache ca-certificates wget \
         "https://github.com/apernet/hysteria/releases/download/app/v${HYSTERIA_VERSION}/hysteria-linux-amd64" \
     && echo "${HYSTERIA_SHA256}  /usr/local/bin/hysteria" | sha256sum -c - \
     && chmod 0555 /usr/local/bin/hysteria \
-    && addgroup -S hysteria \
-    && adduser -S -D -H -G hysteria hysteria
+    && addgroup -S -g 101 hysteria \
+    && adduser -S -D -H -u 100 -G hysteria hysteria
 
 USER hysteria
 ENTRYPOINT ["/usr/local/bin/hysteria"]
