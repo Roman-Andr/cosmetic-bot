@@ -20,7 +20,6 @@ from redis.asyncio import Redis
 from sqlalchemy import text
 
 from app.core.config import Settings
-from app.db.session import SessionLocal
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +81,10 @@ def transitions(current: dict[str, CheckResult], previous: dict[str, bool]) -> l
 
 
 async def _check_database() -> CheckResult:
+    # Imported lazily so the pure decision helpers stay importable without the
+    # runtime database configuration (e.g. during unit tests and linting).
+    from app.db.session import SessionLocal
+
     try:
         async with SessionLocal() as session:
             await session.execute(text("SELECT 1"))
