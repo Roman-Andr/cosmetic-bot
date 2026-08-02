@@ -82,10 +82,11 @@ No server deployment is performed by this repository or its CI automatically.
    180 days in the `postgres-backups` Docker volume. Copy that volume to independent
    storage as part of operational disaster-recovery policy.
 
-The `Publish images` GitHub workflow pushes validated backend and frontend images
-to GHCR only on `master`. Its deployment job is manual and protected by the
-GitHub `production` environment; it will not run until that environment and its
-deployment secrets are configured.
+The CI workflow publishes backend, frontend, and Hysteria images to GHCR only after all backend,
+frontend, and container checks pass on `master`. It deploys exact attested image digests through a
+protected GitHub `production` environment and a forced-command SSH key. Application secrets remain
+only on the server. See [`deploy/README.md`](deploy/README.md) for provisioning, rollback, VPN, TLS,
+and backup details.
 
 ## Privacy launch blocker
 

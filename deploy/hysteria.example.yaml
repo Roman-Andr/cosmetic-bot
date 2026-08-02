@@ -1,0 +1,9 @@
+server: replace-with-vpn-server:443
+auth: replace-with-vpn-secret
+
+tls:
+  sni: replace-with-vpn-server-name
+
+socks5:
+  # This address is private to the Compose egress network; no host port is published.
+  listen: 0.0.0.0:1080

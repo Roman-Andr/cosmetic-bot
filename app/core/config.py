@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     telegram_mode: Literal["webhook", "polling"] = Field(
         default="webhook", validation_alias="TELEGRAM_MODE"
     )
+    telegram_proxy_url: SecretStr | None = Field(
+        default=None,
+        validation_alias="TELEGRAM_PROXY_URL",
+    )
 
     birthday_cashback_percent: Decimal = Field(
         default=Decimal("10.00"),

@@ -1,0 +1,202 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+umask 077
+
+readonly APP_DIR=/srv/cosmetic-bot
+readonly CONFIG_DIR=/etc/cosmetic-bot
+readonly COMPOSE_FILE="$APP_DIR/compose.yml"
+readonly RELEASE_FILE="$APP_DIR/release.env"
+readonly BACKUP_DIR="$APP_DIR/backups"
+readonly RELEASE_DIR="$APP_DIR/releases"
+readonly REPOSITORY=Roman-Andr/cosmetic-bot
+readonly BACKEND_IMAGE=ghcr.io/roman-andr/cosmetic-bot-backend
+readonly FRONTEND_IMAGE=ghcr.io/roman-andr/cosmetic-bot-frontend
+readonly HYSTERIA_IMAGE=ghcr.io/roman-andr/cosmetic-bot-hysteria
+
+log() {
+    printf '[deploy] %s\n' "$*"
+}
+
+fail() {
+    printf '[deploy] ERROR: %s\n' "$*" >&2
+    exit 1
+}
+
+compose() {
+    docker compose --env-file "$RELEASE_FILE" -f "$COMPOSE_FILE" "$@"
+}
+
+wait_for_health() {
+    local service=$1
+    local container_id status
+
+    for _ in {1..60}; do
+        container_id=$(compose ps -q "$service")
+        if [[ -n "$container_id" ]]; then
+            status=$(docker inspect --format \
+                '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' \
+                "$container_id")
+            case "$status" in
+                healthy | running)
+                    log "$service is $status"
+                    return 0
+                    ;;
+                exited | dead | unhealthy)
+                    docker logs --tail 80 "$container_id" >&2 || true
+                    return 1
+                    ;;
+            esac
+        fi
+        sleep 2
+    done
+
+    return 1
+}
+
+wait_for_public_readiness() {
+    local public_base_url
+    public_base_url=$(sed -n 's/^PUBLIC_BASE_URL=//p' "$CONFIG_DIR/app.env" | tail -1)
+    [[ "$public_base_url" == https://* ]] || fail "PUBLIC_BASE_URL must use HTTPS"
+
+    for _ in {1..36}; do
+        if curl --fail --silent --show-error --max-time 10 \
+            "$public_base_url/api/health/ready" >/dev/null; then
+            log "public readiness check passed"
+            return 0
+        fi
+        sleep 5
+    done
+
+    return 1
+}
+
+command_line=${SSH_ORIGINAL_COMMAND:-}
+if [[ -n "$command_line" ]]; then
+    read -r -a deploy_args <<<"$command_line"
+else
+    deploy_args=("$@")
+fi
+
+[[ ${#deploy_args[@]} -eq 5 ]] || fail "expected: deploy BACKEND FRONTEND HYSTERIA COMMIT"
+[[ ${deploy_args[0]} == deploy ]] || fail "unsupported command"
+
+backend_digest=${deploy_args[1]}
+frontend_digest=${deploy_args[2]}
+hysteria_digest=${deploy_args[3]}
+commit_sha=${deploy_args[4]}
+
+readonly digest_pattern='^sha256:[0-9a-f]{64}$'
+[[ $backend_digest =~ $digest_pattern ]] || fail "invalid backend digest"
+[[ $frontend_digest =~ $digest_pattern ]] || fail "invalid frontend digest"
+[[ $hysteria_digest =~ $digest_pattern ]] || fail "invalid hysteria digest"
+[[ $commit_sha =~ ^[0-9a-f]{40}$ ]] || fail "invalid commit SHA"
+
+[[ -r "$COMPOSE_FILE" ]] || fail "missing production Compose file"
+[[ -r "$CONFIG_DIR/app.env" ]] || fail "missing application environment"
+[[ -r "$CONFIG_DIR/secrets/hysteria.yaml" ]] || fail "missing Hysteria configuration"
+[[ -r "$CONFIG_DIR/secrets/google-service-account.json" ]] || \
+    fail "missing Google service-account file"
+command -v gh >/dev/null || fail "GitHub CLI is required for attestation verification"
+
+exec 9>/run/lock/cosmetic-bot-deploy.lock
+flock -n 9 || fail "another production deployment is running"
+
+IFS= read -r registry_token || fail "missing ephemeral registry token on stdin"
+[[ -n "$registry_token" ]] || fail "empty ephemeral registry token"
+
+cleanup() {
+    docker logout ghcr.io >/dev/null 2>&1 || true
+    unset GH_TOKEN registry_token
+}
+trap cleanup EXIT
+
+printf '%s' "$registry_token" | docker login ghcr.io -u github-actions --password-stdin >/dev/null
+export GH_TOKEN=$registry_token
+
+backend_ref="$BACKEND_IMAGE@$backend_digest"
+frontend_ref="$FRONTEND_IMAGE@$frontend_digest"
+hysteria_ref="$HYSTERIA_IMAGE@$hysteria_digest"
+
+for image_ref in "$backend_ref" "$frontend_ref" "$hysteria_ref"; do
+    log "verifying attestation for $image_ref"
+    gh attestation verify "oci://$image_ref" \
+        -R "$REPOSITORY" \
+        --deny-self-hosted-runners \
+        --signer-workflow "$REPOSITORY/.github/workflows/ci.yml" \
+        --source-digest "$commit_sha" \
+        --source-ref refs/heads/master \
+        >/dev/null
+    docker pull "$image_ref" >/dev/null
+done
+
+mkdir -p "$BACKUP_DIR" "$RELEASE_DIR"
+chmod 0700 "$APP_DIR" "$BACKUP_DIR" "$RELEASE_DIR"
+
+previous_release=
+if [[ -s "$RELEASE_FILE" ]]; then
+    previous_release=$(mktemp "$RELEASE_DIR/.previous.XXXXXX")
+    cp --preserve=mode "$RELEASE_FILE" "$previous_release"
+fi
+
+rollback() {
+    local status=$?
+    trap - ERR
+    set +e
+    if [[ -n "$previous_release" && -s "$previous_release" ]]; then
+        log "deployment failed; restoring previous image digests"
+        install -m 0600 "$previous_release" "$RELEASE_FILE"
+        compose pull backend frontend hysteria
+        compose up -d --no-deps hysteria backend frontend caddy backup
+    else
+        log "initial deployment failed; no previous image digests exist"
+    fi
+    exit "$status"
+}
+trap rollback ERR
+
+new_release=$(mktemp "$RELEASE_DIR/.release.XXXXXX")
+printf 'BACKEND_IMAGE=%s\nFRONTEND_IMAGE=%s\nHYSTERIA_IMAGE=%s\nDEPLOYED_GIT_SHA=%s\n' \
+    "$backend_ref" "$frontend_ref" "$hysteria_ref" "$commit_sha" >"$new_release"
+install -m 0600 "$new_release" "$RELEASE_FILE"
+rm -f "$new_release"
+
+compose config --quiet
+compose pull
+
+if compose ps --status running --services | grep -qx postgres; then
+    timestamp=$(date -u +%Y%m%dT%H%M%SZ)
+    backup_file="$BACKUP_DIR/pre-deploy-$timestamp.dump"
+    log "creating PostgreSQL backup $backup_file"
+    # Expand database credentials inside the container, never in the host shell.
+    # shellcheck disable=SC2016
+    compose exec -T postgres sh -ec \
+        'PGPASSWORD="$POSTGRES_PASSWORD" pg_dump --format=custom --no-owner --no-privileges --username="$POSTGRES_USER" "$POSTGRES_DB"' \
+        >"$backup_file"
+    [[ -s "$backup_file" ]] || fail "PostgreSQL backup is empty"
+    chmod 0600 "$backup_file"
+fi
+
+compose up -d postgres redis hysteria
+wait_for_health postgres
+wait_for_health redis
+wait_for_health hysteria
+
+log "applying database migrations"
+compose run --rm --no-deps migrate
+
+compose up -d --no-deps backend frontend backup
+wait_for_health backend
+wait_for_health frontend
+
+compose up -d --no-deps caddy
+wait_for_public_readiness
+
+timestamp=$(date -u +%Y%m%dT%H%M%SZ)
+install -m 0600 "$RELEASE_FILE" "$RELEASE_DIR/release-$timestamp.env"
+printf '%s %s\n' "$timestamp" "$commit_sha" >>"$APP_DIR/deployments.log"
+chmod 0600 "$APP_DIR/deployments.log"
+
+trap - ERR
+[[ -z "$previous_release" ]] || rm -f "$previous_release"
+log "deployment completed for $commit_sha"
