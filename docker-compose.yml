@@ -1,53 +1,139 @@
 services:
-  telegram-bot:
-    build: .
-    container_name: telegram-bot
-    ports:
-      - "8000:8000"
+  postgres:
+    image: postgres:16-alpine
+    env_file: ${ENV_FILE:-.env}
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
-      - .:/app
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
     restart: unless-stopped
-  grafana:
-    image: grafana/grafana
-    container_name: grafana
-    ports:
-      - "3000:3000"
+    security_opt:
+      - no-new-privileges:true
+    networks: [internal]
+
+  redis:
+    image: redis:7-alpine
+    env_file: ${ENV_FILE:-.env}
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD}"]
     volumes:
-      - grafana-data:/var/lib/grafana
-      - grafana-configs:/etc/grafana
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli --no-auth-warning -a $$REDIS_PASSWORD ping | grep PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
     restart: unless-stopped
-  prometheus:
-    image: prom/prometheus
-    container_name: prometheus
-    ports:
-      - "9090:9090"
+    security_opt:
+      - no-new-privileges:true
+    networks: [internal]
+
+  migrate:
+    build:
+      context: .
+    image: ghcr.io/${IMAGE_OWNER:-roman-andr}/cosmetic-bot-backend:${IMAGE_TAG:-local}
+    env_file: ${ENV_FILE:-.env}
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt:
+      - no-new-privileges:true
+    networks: [internal]
+
+  backend:
+    build:
+      context: .
+    image: ghcr.io/${IMAGE_OWNER:-roman-andr}/cosmetic-bot-backend:${IMAGE_TAG:-local}
+    env_file: ${ENV_FILE:-.env}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health/ready')"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     volumes:
-      - ./web.yml:/etc/prometheus/web.yml
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml
-      - prom-data:/prometheus
-      - prom-configs:/etc/prometheus
-    command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
-      - '--web.config.file=/etc/prometheus/web.yml'
-      - '--storage.tsdb.retention.time=100y'
-      - '--storage.tsdb.path=/prometheus'
+      - ${GOOGLE_SHEETS_CREDENTIALS_FILE_HOST:-./google-service-account.json}:/run/secrets/google-service-account.json:ro
+    networks: [internal, egress]
+
+  frontend:
+    build:
+      context: ./frontend
+    image: ghcr.io/${IMAGE_OWNER:-roman-andr}/cosmetic-bot-frontend:${IMAGE_TAG:-local}
     restart: unless-stopped
-  node-exporter:
-    image: prom/node-exporter
+    read_only: true
+    tmpfs: [/tmp, /var/cache/nginx, /var/run]
+    security_opt:
+      - no-new-privileges:true
+    networks: [edge]
+
+  caddy:
+    image: caddy:2.10-alpine
+    env_file: ${ENV_FILE:-.env}
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_started
     ports:
-      - "9100:9100"
+      - "80:80"
+      - "443:443"
     volumes:
-      - /proc:/host/proc:ro
-      - /sys:/host/sys:ro
-      - /:/rootfs:ro
-    command:
-      - '--path.procfs=/host/proc'
-      - '--path.sysfs=/host/sys'
-      - '--collector.filesystem.mount-points-exclude'
-      - '^/(sys|proc|dev|host|etc|rootfs/var/lib/docker/containers|rootfs/var/lib/docker/overlay2|rootfs/run/docker/netns|rootfs/var/lib/docker/aufs)($$|/)'
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    networks: [edge, internal]
+
+  backup:
+    image: prodrigestivill/postgres-backup-local:16
+    env_file: ${ENV_FILE:-.env}
+    environment:
+      POSTGRES_HOST: postgres
+      SCHEDULE: "@daily"
+      BACKUP_KEEP_DAYS: "180"
+      BACKUP_KEEP_WEEKS: "0"
+      BACKUP_KEEP_MONTHS: "0"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - postgres-backups:/backups
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    networks: [internal]
+
 volumes:
-  grafana-data:
-  grafana-configs:
-  prom-data:
-  prom-configs:
+  postgres-data:
+  redis-data:
+  postgres-backups:
+  caddy-data:
+  caddy-config:
+
+networks:
+  edge:
+  egress:
+  internal:
+    internal: true
