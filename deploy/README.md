@@ -25,6 +25,19 @@ fails with `permission denied`:
 The Hysteria config must listen on `0.0.0.0:1080` inside its isolated Compose network. Compose does
 not publish that port to the host. The backend uses `TELEGRAM_PROXY_URL=socks5://hysteria:1080`.
 
+`TELEGRAM_MODE` must stay `polling` on this host. Russian network filtering blocks inbound
+connections from Telegram, so webhook delivery times out; the backend reaches Telegram outbound only
+through the Hysteria proxy. Switching to `webhook` silently breaks the bot.
+
+## Monitoring and alerts
+
+The backend runs a background health monitor that checks PostgreSQL, Redis, Telegram reachability,
+the age of the newest daily backup, and free disk (via the read-only `postgres-backups` mount, which
+shares the data filesystem). It sends a Telegram message to `ALERT_TELEGRAM_ID` (falling back to
+`OWNER_TELEGRAM_ID`) whenever a signal flips to unhealthy, and again when it recovers. This cannot
+detect a fully dead process or host — add a free external dead-man-switch that pings
+`https://romanandr.ru/api/health/ready` for that coverage.
+
 ## Restricted deployment identity
 
 Create a `deploy` user with `/usr/sbin/nologin` and no Docker group membership. Its dedicated SSH
@@ -68,6 +81,8 @@ TLS, obtains and renews the Let's Encrypt certificate for `romanandr.ru`, and fo
 application routing but is not exposed publicly and must not compete with mox for ACME or edge
 ports. Preserve the `romanandr_app` mox web handler when updating the mail server.
 
-The backup service keeps daily PostgreSQL dumps for 180 days. Every deployment also stores a
-pre-migration custom-format dump under `/srv/cosmetic-bot/backups`; copy backups to independent
-storage and periodically test restoration.
+The backup service keeps daily PostgreSQL dumps for 180 days and, with `RUN_ON_STARTUP=TRUE`, also
+takes one immediately on every start so a restart before midnight never skips a day. Every
+deployment additionally stores a pre-migration custom-format dump under `/srv/cosmetic-bot/backups`;
+the deploy script prunes those to the last 14. All of these dumps live on the server's single disk —
+copy them to independent storage and periodically test restoration.

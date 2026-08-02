@@ -54,6 +54,37 @@ wait_for_health() {
     return 1
 }
 
+verify_telegram_reachable() {
+    # Fail the deploy (and trigger rollback) if the freshly started backend cannot
+    # reach the Telegram API through the proxy, so a broken bot never ships silently.
+    log "verifying Telegram API reachability through the proxy"
+    compose exec -T backend python - <<'PY'
+import asyncio
+import sys
+
+from app.bot.application import create_bot
+from app.core.config import get_settings
+
+
+async def main() -> int:
+    bot = create_bot(get_settings())
+    try:
+        for attempt in range(1, 4):
+            try:
+                await bot.get_me()
+                return 0
+            except Exception as exc:  # noqa: BLE001
+                print(f"telegram check attempt {attempt} failed: {exc}", file=sys.stderr)
+                await asyncio.sleep(5)
+        return 1
+    finally:
+        await bot.session.close()
+
+
+raise SystemExit(asyncio.run(main()))
+PY
+}
+
 wait_for_public_readiness() {
     local public_base_url
     # Read the value Compose actually resolved into the container rather than
@@ -178,8 +209,14 @@ if compose ps --status running --services | grep -qx postgres; then
     compose exec -T postgres sh -ec \
         'PGPASSWORD="$POSTGRES_PASSWORD" pg_dump --format=custom --no-owner --no-privileges --username="$POSTGRES_USER" "$POSTGRES_DB"' \
         >"$backup_file"
-    [[ -s "$backup_file" ]] || fail "PostgreSQL backup is empty"
+    # Use `false` rather than fail()/exit so the armed ERR trap runs the rollback.
+    if [[ ! -s "$backup_file" ]]; then
+        log "ERROR: PostgreSQL backup is empty"
+        false
+    fi
     chmod 0600 "$backup_file"
+    # Keep the last 14 pre-deploy dumps; the daily backup service owns long retention.
+    ls -1t "$BACKUP_DIR"/pre-deploy-*.dump 2>/dev/null | tail -n +15 | xargs -r rm -f
 fi
 
 compose up -d postgres redis hysteria
@@ -193,6 +230,7 @@ compose run --rm --no-deps migrate
 compose up -d --no-deps backend frontend backup
 wait_for_health backend
 wait_for_health frontend
+verify_telegram_reachable
 
 compose up -d --no-deps caddy
 wait_for_public_readiness

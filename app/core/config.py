@@ -29,12 +29,21 @@ class Settings(BaseSettings):
     webhook_secret: SecretStr = Field(validation_alias="WEBHOOK_SECRET")
     loyalty_code_pepper: SecretStr = Field(validation_alias="LOYALTY_CODE_PEPPER")
     telegram_mode: Literal["webhook", "polling"] = Field(
-        default="webhook", validation_alias="TELEGRAM_MODE"
+        default="polling", validation_alias="TELEGRAM_MODE"
     )
     telegram_proxy_url: SecretStr | None = Field(
         default=None,
         validation_alias="TELEGRAM_PROXY_URL",
     )
+
+    alert_telegram_id: int | None = Field(default=None, validation_alias="ALERT_TELEGRAM_ID")
+    monitor_interval_seconds: int = Field(
+        default=900, ge=30, validation_alias="MONITOR_INTERVAL_SECONDS"
+    )
+    disk_alert_percent: int = Field(default=85, ge=1, le=100, validation_alias="DISK_ALERT_PERCENT")
+    backup_max_age_hours: int = Field(default=26, ge=1, validation_alias="BACKUP_MAX_AGE_HOURS")
+    backup_dir: str = Field(default="/backups", validation_alias="BACKUP_DIR")
+    fsm_ttl_seconds: int = Field(default=259200, ge=0, validation_alias="FSM_TTL_SECONDS")
 
     birthday_cashback_percent: Decimal = Field(
         default=Decimal("10.00"),
@@ -63,6 +72,13 @@ class Settings(BaseSettings):
     def webhook_url(self) -> str:
         """The Telegram webhook endpoint for the deployed application."""
         return f"{self.public_base_url.rstrip('/')}/api/telegram/webhook"
+
+    @property
+    def effective_alert_id(self) -> int:
+        """Telegram chat that receives operational alerts, defaulting to the owner."""
+        if self.alert_telegram_id is not None:
+            return self.alert_telegram_id
+        return self.owner_telegram_id
 
 
 @lru_cache

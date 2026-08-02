@@ -12,16 +12,17 @@ from fastapi import FastAPI
 
 from app.api.routes import admin, health, loyalty
 from app.bot.application import (
-    configure_webhook,
     create_bot,
     create_dispatcher,
     create_webhook_router,
+    run_telegram,
 )
-from app.bot.notifications import notification_delivery_loop, stop_notification_task
+from app.bot.notifications import notification_delivery_loop
 from app.core.config import get_settings
 from app.db.session import SessionLocal, engine
 from app.services.bootstrap import seed_defaults
 from app.services.catalog import CatalogService, CatalogSyncError
+from app.services.monitoring import health_monitor_loop
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -53,35 +54,20 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     """Seed first-run settings and cleanly stop background resources."""
     async with SessionLocal() as session:
         await seed_defaults(session, settings)
-    sync_task = asyncio.create_task(catalogue_sync_loop(), name="catalogue-sync")
-    polling_task: asyncio.Task[None] | None = None
-    if settings.telegram_mode == "webhook":
-        await configure_webhook(bot, settings)
-    else:
-        await bot.delete_webhook(drop_pending_updates=False)
-        polling_task = asyncio.create_task(
-            dispatcher.start_polling(
-                bot,
-                allowed_updates=["message", "callback_query"],
-                handle_signals=False,
-                close_bot_session=False,
-            ),
-            name="telegram-polling",
-        )
-    notification_task = asyncio.create_task(
-        notification_delivery_loop(bot), name="notification-outbox"
-    )
+    background_tasks = [
+        asyncio.create_task(catalogue_sync_loop(), name="catalogue-sync"),
+        asyncio.create_task(run_telegram(bot, dispatcher, settings), name="telegram-runtime"),
+        asyncio.create_task(notification_delivery_loop(bot), name="notification-outbox"),
+        asyncio.create_task(health_monitor_loop(bot, settings), name="health-monitor"),
+    ]
     try:
         yield
     finally:
-        await stop_notification_task(notification_task)
-        if polling_task is not None:
-            polling_task.cancel()
+        for task in background_tasks:
+            task.cancel()
+        for task in background_tasks:
             with contextlib.suppress(asyncio.CancelledError):
-                await polling_task
-        sync_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await sync_task
+                await task
         await dispatcher.storage.close()
         await bot.session.close()
         await engine.dispose()

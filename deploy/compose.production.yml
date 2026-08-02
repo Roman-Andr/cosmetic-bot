@@ -99,6 +99,12 @@ services:
         read_only: true
         bind:
           create_host_path: false
+      # Read-only view of the daily dumps so the health monitor can alert on stale
+      # backups and low disk (the volume lives on the same filesystem as the data).
+      - type: volume
+        source: postgres-backups
+        target: /backups
+        read_only: true
     healthcheck:
       test:
         - CMD
@@ -171,6 +177,9 @@ services:
     environment:
       POSTGRES_HOST: postgres
       SCHEDULE: "@daily"
+      # Take a dump immediately on every (re)start so a container restart before
+      # midnight never silently skips a day of backups.
+      RUN_ON_STARTUP: "TRUE"
       BACKUP_KEEP_DAYS: "180"
       BACKUP_KEEP_WEEKS: "0"
       BACKUP_KEEP_MONTHS: "0"
