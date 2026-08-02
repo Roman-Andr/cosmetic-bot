@@ -2,7 +2,7 @@
 name = "cosmetic-bot"
 version = "0.1.0"
 description = "Telegram bot and Mini App for Velina Cosmetic loyalty programme"
-readme = "README.MD"
+readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "aiogram>=3.17,<4",
