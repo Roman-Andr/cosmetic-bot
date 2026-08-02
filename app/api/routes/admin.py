@@ -15,6 +15,7 @@ from app.api.dependencies import (
     SessionDependency,
     SettingsDependency,
 )
+from app.api.rate_limit import BuyerCodeRateLimitDependency
 from app.models import (
     AdminRole,
     AdminUser,
@@ -106,6 +107,7 @@ async def preview_purchase(
     session: SessionDependency,
     settings: SettingsDependency,
     _: SalesAdminDependency,
+    _rate_limit: BuyerCodeRateLimitDependency,
 ) -> PurchasePreviewResponse:
     """Use the same transactional calculation as the bot before confirming a sale."""
     try:
@@ -139,6 +141,7 @@ async def lookup_purchase_customer(
     session: SessionDependency,
     settings: SettingsDependency,
     _: SalesAdminDependency,
+    _rate_limit: BuyerCodeRateLimitDependency,
     buyer_code: str = Query(pattern=r"^\d{6}$"),
 ) -> BuyerLookupResponse:
     """Show a sales administrator who owns a valid code without consuming it."""
@@ -169,6 +172,7 @@ async def record_purchase(
     session: SessionDependency,
     settings: SettingsDependency,
     admin: SalesAdminDependency,
+    _rate_limit: BuyerCodeRateLimitDependency,
 ) -> PurchaseRecordResponse:
     """Confirm a Mini App sale with the same service used by the bot FSM."""
     try:

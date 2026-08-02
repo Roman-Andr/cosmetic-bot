@@ -19,6 +19,7 @@ from app.bot.application import (
 )
 from app.bot.notifications import notification_delivery_loop
 from app.core.config import get_settings
+from app.db.redis import get_redis_client
 from app.db.session import SessionLocal, engine
 from app.services.bootstrap import seed_defaults
 from app.services.catalog import CatalogService, CatalogSyncError
@@ -70,6 +71,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
                 await task
         await dispatcher.storage.close()
         await bot.session.close()
+        await get_redis_client().aclose()
         await engine.dispose()
 
 
