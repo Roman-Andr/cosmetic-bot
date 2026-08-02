@@ -122,6 +122,8 @@ for image_ref in "$backend_ref" "$frontend_ref" "$hysteria_ref"; do
     log "verifying attestation for $image_ref"
     gh attestation verify "oci://$image_ref" \
         -R "$REPOSITORY" \
+        --bundle-from-oci \
+        --limit 1 \
         --deny-self-hosted-runners \
         --signer-workflow "$REPOSITORY/.github/workflows/ci.yml" \
         --source-digest "$commit_sha" \
