@@ -1,7 +1,19 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 
-import type { Administrator, CustomerDetail, CustomerSearchResult, PurchasePage, Stats, Tier } from "../../../entities/loyalty/model/types";
-import { api, ApiError, download } from "../../../shared/api/client";
+import {
+  useAddAdministratorMutation,
+  useUpdateTiersMutation,
+} from "../../../entities/admin/api/mutations";
+import {
+  useAdministratorsQuery,
+  useAdminStatsQuery,
+  useAdminTiersQuery,
+  useCustomerPurchasesQuery,
+  useCustomerQuery,
+  useCustomerSearchQuery,
+} from "../../../entities/admin/api/queries";
+import type { Tier } from "../../../entities/loyalty/model/types";
+import { download } from "../../../shared/api/client";
 import { errorMessage, formatDate } from "../../../shared/lib/format";
 import { haptic } from "../../../shared/lib/telegram";
 import type { NoticeHandler } from "../../../shared/model/notice";
@@ -13,58 +25,59 @@ import { ui } from "../../../shared/ui/classes";
 type OwnerSection = "overview" | "customers" | "settings";
 
 export function OwnerDashboard({ onNotice }: { onNotice: NoticeHandler }) {
-  const [stats, setStats] = useState<Stats | null>(null);
   const [tiers, setTiers] = useState<Tier[]>([]);
+  const [tiersDirty, setTiersDirty] = useState(false);
   const [section, setSection] = useState<OwnerSection>("overview");
   const [query, setQuery] = useState("");
-  const [customers, setCustomers] = useState<CustomerSearchResult[]>([]);
-  const [hasSearched, setHasSearched] = useState(false);
-  const [selectedCustomer, setSelectedCustomer] = useState<CustomerDetail | null>(null);
-  const [selectedCustomerPurchases, setSelectedCustomerPurchases] = useState<PurchasePage | null>(null);
+  const [submittedQuery, setSubmittedQuery] = useState("");
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
   const [showAdministrators, setShowAdministrators] = useState(false);
-  const [savingTiers, setSavingTiers] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const statsQuery = useAdminStatsQuery();
+  const tiersQuery = useAdminTiersQuery();
+  const customersQuery = useCustomerSearchQuery(submittedQuery);
+  const updateTiersMutation = useUpdateTiersMutation();
+  const stats = statsQuery.data;
+  const customers = customersQuery.data ?? [];
+  const hasSearched = submittedQuery.length >= 2;
 
-  const loadDashboard = useCallback(async (): Promise<void> => {
-    setLoading(true);
-    try {
-      const [dashboard, configuredTiers] = await Promise.all([api.get<Stats>("/admin/stats"), api.get<Tier[]>("/admin/tiers")]);
-      setStats(dashboard);
-      setTiers(configuredTiers);
-    } catch (error) { if (!(error instanceof ApiError && error.status === 403)) onNotice(errorMessage(error)); }
-    finally { setLoading(false); }
-  }, [onNotice]);
+  useEffect(() => {
+    if (tiersQuery.data && !tiersDirty) setTiers(tiersQuery.data);
+  }, [tiersDirty, tiersQuery.data]);
 
-  useEffect(() => { void loadDashboard(); }, [loadDashboard]);
+  useEffect(() => {
+    const error = statsQuery.error ?? tiersQuery.error ?? customersQuery.error;
+    if (error) onNotice(errorMessage(error));
+  }, [customersQuery.error, onNotice, statsQuery.error, tiersQuery.error]);
 
   const saveTiers = async (): Promise<void> => {
-    setSavingTiers(true);
     try {
-      setTiers(await api.put<Tier[]>("/admin/tiers", { rules: tiers.map(({ minimum_turnover, cashback_percent }) => ({ minimum_turnover, cashback_percent })) }));
+      const savedTiers = await updateTiersMutation.mutateAsync(
+        tiers.map(({ minimum_turnover, cashback_percent }) => ({
+          minimum_turnover,
+          cashback_percent,
+        })),
+      );
+      setTiers(savedTiers);
+      setTiersDirty(false);
       haptic("success");
       onNotice("Правила кешбэка сохранены.", "success");
     } catch (error) { haptic("error"); onNotice(errorMessage(error)); }
-    finally { setSavingTiers(false); }
   };
 
-  const search = async (event: FormEvent): Promise<void> => {
+  const search = (event: FormEvent): void => {
     event.preventDefault();
-    if (query.trim().length < 2) { onNotice("Введите минимум два символа для поиска."); return; }
-    setHasSearched(true);
-    try { setCustomers(await api.get<CustomerSearchResult[]>(`/admin/customers/search?query=${encodeURIComponent(query.trim())}`)); }
-    catch (error) { onNotice(errorMessage(error)); }
+    const normalizedQuery = query.trim();
+    if (normalizedQuery.length < 2) { onNotice("Введите минимум два символа для поиска."); return; }
+    if (normalizedQuery === submittedQuery) void customersQuery.refetch();
+    else setSubmittedQuery(normalizedQuery);
   };
 
-  const openCustomer = async (customerId: string): Promise<void> => {
-    try {
-      const [customer, purchases] = await Promise.all([api.get<CustomerDetail>(`/admin/customers/${customerId}`), api.get<PurchasePage>(`/admin/customers/${customerId}/purchases`)]);
-      setSelectedCustomer(customer);
-      setSelectedCustomerPurchases(purchases);
-      haptic();
-    } catch (error) { onNotice(errorMessage(error)); }
+  const openCustomer = (customerId: string): void => {
+    setSelectedCustomerId(customerId);
+    haptic();
   };
 
-  if (loading) return <section className={ui("owner-loading")}><span className={ui("loader")} />Загружаем управление…</section>;
+  if (statsQuery.isPending || tiersQuery.isPending) return <section className={ui("owner-loading")}><span className={ui("loader")} />Загружаем управление…</section>;
 
   return <section className={ui("owner-workspace")}>
     <header className={ui("workspace-heading")}><p className={ui("eyebrow")}>УПРАВЛЕНИЕ ПРОГРАММОЙ</p><h1>Центр лояльности</h1><p>Главные показатели, база клиентов и правила — в отдельных рабочих разделах.</p></header>
@@ -86,9 +99,9 @@ export function OwnerDashboard({ onNotice }: { onNotice: NoticeHandler }) {
 
     {section === "customers" && <section className={ui("owner-view", "owner-card")}>
       <div className={ui("view-heading")}><div><p className={ui("overline")} data-overline>БАЗА КЛИЕНТОВ</p><h2>Найти клиента</h2><p>По ФИО, телефону или временному коду.</p></div><span className={ui("soft-icon")}><Icon name="search" /></span></div>
-      <form className={ui("search-form")} onSubmit={(event) => void search(event)}><label className={ui("admin-search-field")}><Icon name="search" size={18} /><input className={ui("form-control")} aria-label="Поиск клиента" placeholder="Анна, телефон или код" value={query} onChange={(event) => setQuery(event.target.value)} /></label><button className={ui("primary-action", "auto-action")}>Найти</button></form>
-      {hasSearched && <ul className={ui("customer-list")}>{customers.map((customer) => <li key={customer.customer_id}><button className={ui("customer-row")} type="button" onClick={() => void openCustomer(customer.customer_id)}><span>{customer.full_name}<small>{customer.phone} · с {formatDate(customer.registered_at)}</small></span><strong><Money value={customer.current_balance} /><Icon name="arrow" size={15} /></strong></button></li>)}</ul>}
-      {hasSearched && customers.length === 0 && <div className={ui("search-empty")}><Icon name="search" /><strong>Клиенты не найдены</strong><span>Проверьте запрос и попробуйте ещё раз.</span></div>}
+      <form className={ui("search-form")} onSubmit={search}><label className={ui("admin-search-field")}><Icon name="search" size={18} /><input className={ui("form-control")} aria-label="Поиск клиента" placeholder="Анна, телефон или код" value={query} onChange={(event) => setQuery(event.target.value)} /></label><button className={ui("primary-action", "auto-action")}>{customersQuery.isFetching ? "Ищем…" : "Найти"}</button></form>
+      {hasSearched && <ul className={ui("customer-list")}>{customers.map((customer) => <li key={customer.customer_id}><button className={ui("customer-row")} type="button" onClick={() => openCustomer(customer.customer_id)}><span>{customer.full_name}<small>{customer.phone} · с {formatDate(customer.registered_at)}</small></span><strong><Money value={customer.current_balance} /><Icon name="arrow" size={15} /></strong></button></li>)}</ul>}
+      {hasSearched && !customersQuery.isFetching && customers.length === 0 && <div className={ui("search-empty")}><Icon name="search" /><strong>Клиенты не найдены</strong><span>Проверьте запрос и попробуйте ещё раз.</span></div>}
     </section>}
 
     {section === "settings" && <section className={ui("owner-view", "owner-card")}>
@@ -96,15 +109,15 @@ export function OwnerDashboard({ onNotice }: { onNotice: NoticeHandler }) {
       <div className={ui("tier-editor")}>{tiers.map((tier, index) => <section className={ui("tier-config-card")} key={tier.id ?? index}>
         <header><span className={ui("tier-index")}>{index + 1}</span><div><strong>Уровень {index + 1}</strong><small>Порог оборота и процент начисления</small></div></header>
         <div className={ui("tier-config-fields")}>
-          <label><span>Оборот от</span><input className={ui("form-control", "number-input")} aria-label={`Порог уровня ${index + 1}`} type="number" min="0" step="0.01" value={tier.minimum_turnover} onChange={(event) => setTiers(tiers.map((item, itemIndex) => itemIndex === index ? { ...item, minimum_turnover: event.target.value } : item))} /><em><CurrencySymbol /></em></label>
-          <label><span>Кешбэк</span><input className={ui("form-control", "number-input")} aria-label={`Кешбэк уровня ${index + 1}`} type="number" min="0" max="100" step="0.01" value={tier.cashback_percent} onChange={(event) => setTiers(tiers.map((item, itemIndex) => itemIndex === index ? { ...item, cashback_percent: event.target.value } : item))} /><em>%</em></label>
+          <label><span>Оборот от</span><input className={ui("form-control", "number-input")} aria-label={`Порог уровня ${index + 1}`} type="number" min="0" step="0.01" value={tier.minimum_turnover} onChange={(event) => { setTiersDirty(true); setTiers(tiers.map((item, itemIndex) => itemIndex === index ? { ...item, minimum_turnover: event.target.value } : item)); }} /><em><CurrencySymbol /></em></label>
+          <label><span>Кешбэк</span><input className={ui("form-control", "number-input")} aria-label={`Кешбэк уровня ${index + 1}`} type="number" min="0" max="100" step="0.01" value={tier.cashback_percent} onChange={(event) => { setTiersDirty(true); setTiers(tiers.map((item, itemIndex) => itemIndex === index ? { ...item, cashback_percent: event.target.value } : item)); }} /><em>%</em></label>
         </div>
       </section>)}</div>
-      <button className={ui("primary-action")} disabled={savingTiers} onClick={() => void saveTiers()}>{savingTiers ? "Сохраняем…" : "Сохранить уровни"}<Icon name="check" /></button>
+      <button className={ui("primary-action")} disabled={updateTiersMutation.isPending} onClick={() => void saveTiers()}>{updateTiersMutation.isPending ? "Сохраняем…" : "Сохранить уровни"}<Icon name="check" /></button>
       <button className={ui("team-link")} type="button" onClick={() => setShowAdministrators(true)}><span><Icon name="account" />Sales-администраторы</span><Icon name="arrow" size={17} /></button>
     </section>}
 
-    {selectedCustomer && <CustomerModal customer={selectedCustomer} purchases={selectedCustomerPurchases} onClose={() => setSelectedCustomer(null)} />}
+    {selectedCustomerId && <CustomerModal customerId={selectedCustomerId} onClose={() => setSelectedCustomerId(null)} onNotice={onNotice} />}
     {showAdministrators && <AdministratorsModal onClose={() => setShowAdministrators(false)} onNotice={onNotice} />}
   </section>;
 }
@@ -113,37 +126,49 @@ function OwnerTab({ active, icon, label, onClick }: { active: boolean; icon: "ch
   return <button type="button" aria-pressed={active} onClick={onClick}><Icon name={icon} size={17} /><span>{label}</span></button>;
 }
 
-function CustomerModal({ customer, purchases, onClose }: { customer: CustomerDetail; purchases: PurchasePage | null; onClose: () => void }) {
+function CustomerModal({ customerId, onClose, onNotice }: { customerId: string; onClose: () => void; onNotice: NoticeHandler }) {
+  const customerQuery = useCustomerQuery(customerId);
+  const purchasesQuery = useCustomerPurchasesQuery(customerId);
+  const customer = customerQuery.data;
+  const purchases = purchasesQuery.data;
+
+  useEffect(() => {
+    const error = customerQuery.error ?? purchasesQuery.error;
+    if (error) onNotice(errorMessage(error));
+  }, [customerQuery.error, onNotice, purchasesQuery.error]);
+
   return <Modal title="Карточка клиента" eyebrow="ПРОФИЛЬ" onClose={onClose}>
-    <div className={ui("customer-detail-head")}><span>{customer.full_name.slice(0, 1).toUpperCase()}</span><div><strong>{customer.full_name}</strong><small>{customer.phone} · с {formatDate(customer.registered_at)}</small></div></div>
-    <div className={ui("customer-detail-metrics")}><span>Баланс<b><Money value={customer.current_balance} /></b></span><span>Оборот<b><Money value={customer.lifetime_turnover} /></b></span></div>
-    <h3 className={ui("modal-section-title")}>Покупки</h3><ul className={ui("purchase-list")}>{purchases?.items.length ? purchases.items.map((purchase) => <li key={purchase.id}><span className={ui("purchase-date")}>{formatDate(purchase.created_at)}</span><strong><Money value={purchase.total_amount} /></strong><em><Money prefix="+" value={purchase.cashback_accrued} /></em></li>) : <li className={ui("empty-list")}>Покупок пока нет.</li>}</ul>
+    {!customer ? <div className={ui("modal-loader")}><span className={ui("loader")} />Загружаем клиента…</div> : <>
+      <div className={ui("customer-detail-head")}><span>{customer.full_name.slice(0, 1).toUpperCase()}</span><div><strong>{customer.full_name}</strong><small>{customer.phone} · с {formatDate(customer.registered_at)}</small></div></div>
+      <div className={ui("customer-detail-metrics")}><span>Баланс<b><Money value={customer.current_balance} /></b></span><span>Оборот<b><Money value={customer.lifetime_turnover} /></b></span></div>
+      <h3 className={ui("modal-section-title")}>Покупки</h3><ul className={ui("purchase-list")}>{purchasesQuery.isPending ? <li className={ui("empty-list")}>Загружаем покупки…</li> : purchases?.items.length ? purchases.items.map((purchase) => <li key={purchase.id}><span className={ui("purchase-date")}>{formatDate(purchase.created_at)}</span><strong><Money value={purchase.total_amount} /></strong><em><Money prefix="+" value={purchase.cashback_accrued} /></em></li>) : <li className={ui("empty-list")}>Покупок пока нет.</li>}</ul>
+    </>}
   </Modal>;
 }
 
 function AdministratorsModal({ onClose, onNotice }: { onClose: () => void; onNotice: NoticeHandler }) {
-  const [administrators, setAdministrators] = useState<Administrator[] | null>(null);
   const [telegramId, setTelegramId] = useState("");
-  const [adding, setAdding] = useState(false);
+  const administratorsQuery = useAdministratorsQuery();
+  const addAdministratorMutation = useAddAdministratorMutation();
+  const administrators = administratorsQuery.data;
 
-  const load = useCallback(async (): Promise<void> => { try { setAdministrators(await api.get<Administrator[]>("/admin/administrators")); } catch (error) { onNotice(errorMessage(error)); } }, [onNotice]);
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    if (administratorsQuery.error) onNotice(errorMessage(administratorsQuery.error));
+  }, [administratorsQuery.error, onNotice]);
+
   const add = async (event: FormEvent): Promise<void> => {
     event.preventDefault();
     if (!/^\d+$/.test(telegramId)) { onNotice("Введите числовой Telegram ID."); return; }
-    setAdding(true);
     try {
-      await api.post<Administrator>("/admin/administrators", { telegram_user_id: Number(telegramId) });
+      await addAdministratorMutation.mutateAsync(Number(telegramId));
       setTelegramId("");
-      await load();
       haptic("success");
       onNotice("Sales-администратор добавлен.", "success");
     } catch (error) { haptic("error"); onNotice(errorMessage(error)); }
-    finally { setAdding(false); }
   };
   return <Modal title="Команда" eyebrow="ДОСТУП К ПРОДАЖАМ" onClose={onClose}>
     <p className={ui("muted")}>Sales-администратор может оформлять покупки в боте и Mini App, но не видит данные клиентов и настройки.</p>
-    <form className={ui("administrator-form")} onSubmit={(event) => void add(event)}><label className={ui("admin-search-field")}><Icon name="account" size={18} /><input className={ui("form-control")} aria-label="Telegram ID" inputMode="numeric" value={telegramId} onChange={(event) => setTelegramId(event.target.value.replace(/\D/g, ""))} placeholder="Telegram ID" /></label><button className={ui("primary-action", "auto-action")} disabled={adding}>{adding ? "Добавляем…" : "Добавить"}<Icon name="plus" /></button></form>
+    <form className={ui("administrator-form")} onSubmit={(event) => void add(event)}><label className={ui("admin-search-field")}><Icon name="account" size={18} /><input className={ui("form-control")} aria-label="Telegram ID" inputMode="numeric" value={telegramId} onChange={(event) => setTelegramId(event.target.value.replace(/\D/g, ""))} placeholder="Telegram ID" /></label><button className={ui("primary-action", "auto-action")} disabled={addAdministratorMutation.isPending}>{addAdministratorMutation.isPending ? "Добавляем…" : "Добавить"}<Icon name="plus" /></button></form>
     <ul className={ui("administrator-list")}>{administrators?.map((admin) => <li key={admin.telegram_user_id}><span className={admin.role === "owner" ? ui("role-dot-owner") : ui("role-dot-sales")} /><div><strong>{admin.role === "owner" ? "Главный администратор" : "Sales-администратор"}</strong><small>{admin.telegram_user_id}</small></div><em>{admin.is_active ? "Активен" : "Выключен"}</em></li>)}</ul>
   </Modal>;
 }

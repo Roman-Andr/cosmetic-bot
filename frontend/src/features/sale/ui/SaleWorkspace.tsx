@@ -1,9 +1,16 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 
-import type { BuyerLookup, Product, SalePreview, SaleRecord } from "../../../entities/loyalty/model/types";
-import { api, ApiError } from "../../../shared/api/client";
+import {
+  useRecordSaleMutation,
+  useSalePreviewMutation,
+} from "../../../entities/admin/api/mutations";
+import { useBuyerQuery } from "../../../entities/admin/api/queries";
+import { useProductsQuery } from "../../../entities/catalog/api/queries";
+import type { Product, SalePreview, SaleRecord } from "../../../entities/loyalty/model/types";
+import { ApiError } from "../../../shared/api/client";
 import { errorMessage, formatDate } from "../../../shared/lib/format";
 import { haptic } from "../../../shared/lib/telegram";
+import { useDebouncedValue } from "../../../shared/lib/useDebouncedValue";
 import type { NoticeHandler } from "../../../shared/model/notice";
 import { Icon } from "../../../shared/ui/Icon";
 import { Modal } from "../../../shared/ui/Modal";
@@ -14,72 +21,54 @@ export function SaleWorkspace({ onNotice }: { onNotice: NoticeHandler }) {
   const [buyerCode, setBuyerCode] = useState("");
   const [amount, setAmount] = useState("");
   const [query, setQuery] = useState("");
-  const [products, setProducts] = useState<Product[]>([]);
   const [selectedProducts, setSelectedProducts] = useState<Product[]>([]);
-  const [preview, setPreview] = useState<SalePreview | null>(null);
-  const [success, setSuccess] = useState<SaleRecord | null>(null);
-  const [searching, setSearching] = useState(false);
-  const [previewing, setPreviewing] = useState(false);
-  const [recording, setRecording] = useState(false);
   const [productPickerOpen, setProductPickerOpen] = useState(false);
-  const [buyer, setBuyer] = useState<BuyerLookup | null>(null);
-  const [buyerLookupState, setBuyerLookupState] = useState<"idle" | "loading" | "found" | "not-found">("idle");
-  const productRequestId = useRef(0);
-  const buyerRequestId = useRef(0);
   const productPickerRef = useRef<HTMLDetailsElement>(null);
+  const lookupFeedback = useRef("");
+  const debouncedBuyerCode = useDebouncedValue(buyerCode, 180);
+  const normalizedProductQuery = query.trim();
+  const debouncedProductQuery = useDebouncedValue(
+    normalizedProductQuery,
+    normalizedProductQuery ? 180 : 0,
+  );
+  const buyerQuery = useBuyerQuery(debouncedBuyerCode);
+  const productsQuery = useProductsQuery(debouncedProductQuery, productPickerOpen);
+  const previewMutation = useSalePreviewMutation();
+  const recordSaleMutation = useRecordSaleMutation();
+  const buyer = buyerCode === debouncedBuyerCode ? buyerQuery.data ?? null : null;
+  const products = productsQuery.data ?? [];
+  const searching = productPickerOpen
+    && (debouncedProductQuery !== normalizedProductQuery || productsQuery.isFetching);
+  const preview = previewMutation.data ?? null;
+  const success = recordSaleMutation.data ?? null;
+  const buyerLookupState = buyerCode.length !== 6
+    ? "idle"
+    : buyerCode !== debouncedBuyerCode || buyerQuery.isPending || buyerQuery.isFetching
+      ? "loading"
+      : buyerQuery.error instanceof ApiError && buyerQuery.error.status === 404
+        ? "not-found"
+        : buyer
+          ? "found"
+          : "idle";
 
   useEffect(() => {
-    if (buyerCode.length !== 6) {
-      buyerRequestId.current += 1;
-      setBuyer(null);
-      setBuyerLookupState("idle");
-      return;
+    const feedbackKey = `${debouncedBuyerCode}:${buyerLookupState}`;
+    if (buyerLookupState === "found" && lookupFeedback.current !== feedbackKey) haptic("light");
+    if (buyerLookupState === "not-found" && lookupFeedback.current !== feedbackKey) haptic("warning");
+    if (buyerLookupState === "found" || buyerLookupState === "not-found") {
+      lookupFeedback.current = feedbackKey;
     }
-
-    const requestId = ++buyerRequestId.current;
-    setBuyerLookupState("loading");
-    const timer = window.setTimeout(() => {
-      void api.get<BuyerLookup>(`/admin/purchases/customer?buyer_code=${buyerCode}`)
-        .then((customer) => {
-          if (requestId !== buyerRequestId.current) return;
-          setBuyer(customer);
-          setBuyerLookupState("found");
-          haptic("light");
-        })
-        .catch((error: unknown) => {
-          if (requestId !== buyerRequestId.current) return;
-          setBuyer(null);
-          if (error instanceof ApiError && error.status === 404) {
-            setBuyerLookupState("not-found");
-            haptic("warning");
-          } else {
-            setBuyerLookupState("idle");
-            onNotice(errorMessage(error));
-          }
-        });
-    }, 180);
-
-    return () => window.clearTimeout(timer);
-  }, [buyerCode, onNotice]);
+  }, [buyerLookupState, debouncedBuyerCode]);
 
   useEffect(() => {
-    if (!productPickerOpen) {
-      productRequestId.current += 1;
-      setSearching(false);
-      return;
+    if (buyerQuery.error && !(buyerQuery.error instanceof ApiError && buyerQuery.error.status === 404)) {
+      onNotice(errorMessage(buyerQuery.error));
     }
+  }, [buyerQuery.error, onNotice]);
 
-    const requestId = ++productRequestId.current;
-    const timer = window.setTimeout(() => {
-      setSearching(true);
-      void api.get<Product[]>(`/admin/products?query=${encodeURIComponent(query.trim())}`)
-        .then((items) => { if (requestId === productRequestId.current) setProducts(items); })
-        .catch((error: unknown) => { if (requestId === productRequestId.current) onNotice(errorMessage(error)); })
-        .finally(() => { if (requestId === productRequestId.current) setSearching(false); });
-    }, query.trim() ? 180 : 0);
-
-    return () => window.clearTimeout(timer);
-  }, [onNotice, productPickerOpen, query]);
+  useEffect(() => {
+    if (productsQuery.error) onNotice(errorMessage(productsQuery.error));
+  }, [onNotice, productsQuery.error]);
 
   const selectProduct = (product: Product): void => {
     if (selectedProducts.some((item) => item.external_id === product.external_id)) return;
@@ -99,32 +88,27 @@ export function SaleWorkspace({ onNotice }: { onNotice: NoticeHandler }) {
       onNotice("Введите шестизначный код и сумму покупки больше нуля.");
       return;
     }
-    setPreviewing(true);
     try {
-      setPreview(await api.post<SalePreview>("/admin/purchases/preview", { buyer_code: buyerCode, total_amount: amount }));
+      await previewMutation.mutateAsync({ buyer_code: buyerCode, total_amount: amount });
       haptic("light");
     } catch (error) { haptic("error"); onNotice(errorMessage(error)); }
-    finally { setPreviewing(false); }
   };
 
   const recordSale = async (): Promise<void> => {
-    setRecording(true);
     try {
-      const result = await api.post<SaleRecord>("/admin/purchases", {
+      await recordSaleMutation.mutateAsync({
         buyer_code: buyerCode,
         total_amount: amount,
         product_external_ids: selectedProducts.map((item) => item.external_id),
       });
-      setPreview(null);
-      setSuccess(result);
+      previewMutation.reset();
       haptic("success");
     } catch (error) { haptic("error"); onNotice(errorMessage(error)); }
-    finally { setRecording(false); }
   };
 
   const reset = (): void => {
-    buyerRequestId.current += 1;
-    setBuyerCode(""); setBuyer(null); setBuyerLookupState("idle"); setAmount(""); setQuery(""); setProducts([]); setSelectedProducts([]); setPreview(null); setSuccess(null);
+    setBuyerCode(""); setAmount(""); setQuery(""); setSelectedProducts([]);
+    previewMutation.reset(); recordSaleMutation.reset(); lookupFeedback.current = "";
     if (productPickerRef.current) productPickerRef.current.open = false;
     setProductPickerOpen(false);
   };
@@ -169,9 +153,9 @@ export function SaleWorkspace({ onNotice }: { onNotice: NoticeHandler }) {
           </div>
         </div>
       </details>
-      <button className={ui("primary-action", "sale-submit")} disabled={previewing || buyerLookupState === "loading" || buyerLookupState === "not-found"} type="submit">{previewing ? "Считаем бонусы…" : "Рассчитать заказ"}<Icon name="arrow" /></button>
+      <button className={ui("primary-action", "sale-submit")} disabled={previewMutation.isPending || buyerLookupState === "loading" || buyerLookupState === "not-found"} type="submit">{previewMutation.isPending ? "Считаем бонусы…" : "Рассчитать заказ"}<Icon name="arrow" /></button>
     </form>
-    {preview && <SaleConfirmation preview={preview} products={selectedProducts} onCancel={() => setPreview(null)} onConfirm={() => void recordSale()} recording={recording} />}
+    {preview && <SaleConfirmation preview={preview} products={selectedProducts} onCancel={() => previewMutation.reset()} onConfirm={() => void recordSale()} recording={recordSaleMutation.isPending} />}
     {success && <SaleSuccess result={success} onClose={reset} />}
   </section>;
 }

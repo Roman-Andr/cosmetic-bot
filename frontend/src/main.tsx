@@ -10,8 +10,9 @@ import "@fontsource/roboto/latin-700.css";
 import "@fontsource/roboto/latin-900.css";
 
 import App from "./App";
+import { QueryProvider } from "./app/providers/QueryProvider";
 import "./app/styles.css";
 
 createRoot(document.getElementById("root")!).render(
-  <StrictMode><App /></StrictMode>,
+  <StrictMode><QueryProvider><App /></QueryProvider></StrictMode>,
 );

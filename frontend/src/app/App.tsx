@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 
-import type { AdminAccess, AdminRole, Profile } from "../entities/loyalty/model/types";
+import { useAdminAccessQuery } from "../entities/admin/api/queries";
+import { useContactStatusQuery, useProfileQuery } from "../entities/loyalty/api/queries";
 import { RegistrationPanel } from "../features/registration/ui/RegistrationPanel";
 import { SaleWorkspace } from "../features/sale/ui/SaleWorkspace";
-import { api, ApiError } from "../shared/api/client";
+import { ApiError } from "../shared/api/client";
 import { errorMessage } from "../shared/lib/format";
 import { getTelegramApp, syncTelegramAppearance } from "../shared/lib/telegram";
 import type { NoticeTone } from "../shared/model/notice";
@@ -16,12 +17,12 @@ import { ProfilePanel } from "../widgets/profile/ui/ProfilePanel";
 type Tab = "profile" | "sale" | "admin";
 
 export default function App() {
-  const [profile, setProfile] = useState<Profile | null>(null);
-  const [contactReady, setContactReady] = useState(false);
-  const [adminRole, setAdminRole] = useState<AdminRole | null>(null);
-  const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState<{ message: string; tone: NoticeTone } | null>(null);
   const [tab, setTab] = useState<Tab>("profile");
+  const profileQuery = useProfileQuery();
+  const accessQuery = useAdminAccessQuery();
+  const profileMissing = profileQuery.error instanceof ApiError && profileQuery.error.status === 404;
+  const contactQuery = useContactStatusQuery(profileMissing);
   const showNotice = useCallback((message: string | null, tone: NoticeTone = "error"): void => {
     setNotice(message ? { message, tone } : null);
   }, []);
@@ -31,32 +32,31 @@ export default function App() {
     telegram?.ready();
     telegram?.expand();
     const stopSyncingAppearance = syncTelegramAppearance();
-    const load = async (): Promise<void> => {
-      setLoading(true);
-      const [profileResult, accessResult] = await Promise.allSettled([
-        api.get<Profile>("/loyalty/me"),
-        api.get<AdminAccess>("/admin/access"),
-      ]);
-      if (profileResult.status === "fulfilled") {
-        setProfile(profileResult.value);
-        setContactReady(true);
-        if (profileResult.value.admin_role) setAdminRole(profileResult.value.admin_role);
-      } else if (profileResult.reason instanceof ApiError && profileResult.reason.status === 404) {
-        try { const contact = await api.get<{ is_available: boolean }>("/loyalty/contact-status"); setContactReady(contact.is_available); }
-        catch (error) { showNotice(errorMessage(error)); }
-      } else showNotice(errorMessage(profileResult.reason));
-
-      if (accessResult.status === "fulfilled") {
-        setAdminRole(accessResult.value.role);
-        if (profileResult.status === "rejected") setTab(accessResult.value.role === "owner" ? "admin" : "sale");
-      } else if (!(accessResult.reason instanceof ApiError && accessResult.reason.status === 403)) {
-        showNotice(errorMessage(accessResult.reason));
-      }
-      setLoading(false);
-    };
-    void load();
     return stopSyncingAppearance;
-  }, [showNotice]);
+  }, []);
+
+  useEffect(() => {
+    if (profileQuery.error && !profileMissing) showNotice(errorMessage(profileQuery.error));
+  }, [profileMissing, profileQuery.error, showNotice]);
+
+  useEffect(() => {
+    if (accessQuery.error && !(accessQuery.error instanceof ApiError && accessQuery.error.status === 403)) {
+      showNotice(errorMessage(accessQuery.error));
+    }
+  }, [accessQuery.error, showNotice]);
+
+  useEffect(() => {
+    if (contactQuery.error) showNotice(errorMessage(contactQuery.error));
+  }, [contactQuery.error, showNotice]);
+
+  const profile = profileQuery.data ?? null;
+  const adminRole = accessQuery.data?.role ?? null;
+
+  useEffect(() => {
+    if (!profile && adminRole && tab === "profile") {
+      setTab(adminRole === "owner" ? "admin" : "sale");
+    }
+  }, [adminRole, profile, tab]);
 
   useEffect(() => {
     if (notice?.tone !== "success") return;
@@ -67,6 +67,9 @@ export default function App() {
   const role = profile?.admin_role ?? adminRole;
   const isOwner = role === "owner";
   const canSell = role === "sales" || isOwner;
+  const contactReady = profile !== null || contactQuery.data?.is_available === true;
+  const loading = profileQuery.isPending || accessQuery.isPending
+    || (profileMissing && contactQuery.isPending);
   if (loading) return <main className={ui("screen", "loading-screen")}><span className={ui("loader")} /><p>Открываем программу…</p></main>;
 
   return <main className={ui("screen")}>
@@ -82,10 +85,10 @@ export default function App() {
         {isOwner && <SectionTile active={tab === "admin"} icon="shield" title="Управление" onClick={() => setTab("admin")} />}
       </nav>}
       <div className={ui("tab-content")}>
-        {tab === "profile" && <ProfilePanel profile={profile} onProfile={setProfile} onNotice={showNotice} />}
+        {tab === "profile" && <ProfilePanel profile={profile} onNotice={showNotice} />}
         {tab === "sale" && canSell && <SaleWorkspace onNotice={showNotice} />}
         {tab === "admin" && isOwner && <OwnerDashboard onNotice={showNotice} />}
       </div>
-    </> : canSell ? <><nav className={ui("workspace-tabs")} aria-label="Разделы кабинета"><SectionTile active={tab === "sale"} icon="sale" title="Продажа" onClick={() => setTab("sale")} />{isOwner && <SectionTile active={tab === "admin"} icon="shield" title="Управление" onClick={() => setTab("admin")} />}</nav>{tab === "admin" && isOwner ? <OwnerDashboard onNotice={showNotice} /> : <SaleWorkspace onNotice={showNotice} />}</> : <RegistrationPanel contactReady={contactReady} onContactReady={setContactReady} onProfile={setProfile} onNotice={showNotice} />}
+    </> : canSell ? <><nav className={ui("workspace-tabs")} aria-label="Разделы кабинета"><SectionTile active={tab === "sale"} icon="sale" title="Продажа" onClick={() => setTab("sale")} />{isOwner && <SectionTile active={tab === "admin"} icon="shield" title="Управление" onClick={() => setTab("admin")} />}</nav>{tab === "admin" && isOwner ? <OwnerDashboard onNotice={showNotice} /> : <SaleWorkspace onNotice={showNotice} />}</> : <RegistrationPanel contactReady={contactReady} onNotice={showNotice} />}
   </main>;
 }

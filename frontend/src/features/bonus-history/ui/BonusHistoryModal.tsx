@@ -1,7 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 
-import type { BonusTransactionPage } from "../../../entities/loyalty/model/types";
-import { api } from "../../../shared/api/client";
+import { useTransactionsQuery } from "../../../entities/loyalty/api/queries";
 import { errorMessage, formatDate } from "../../../shared/lib/format";
 import type { NoticeHandler } from "../../../shared/model/notice";
 import { Icon } from "../../../shared/ui/Icon";
@@ -14,20 +13,20 @@ export function BonusHistoryModal({ balance, onClose, onNotice }: {
   onClose: () => void;
   onNotice: NoticeHandler;
 }) {
-  const [transactions, setTransactions] = useState<BonusTransactionPage | null>(null);
+  const transactionsQuery = useTransactionsQuery();
+  const transactions = transactionsQuery.data;
 
   useEffect(() => {
-    void api.get<BonusTransactionPage>("/loyalty/transactions")
-      .then(setTransactions)
-      .catch((error: unknown) => onNotice(errorMessage(error)));
-  }, [balance, onNotice]);
+    if (transactionsQuery.error) onNotice(errorMessage(transactionsQuery.error));
+  }, [onNotice, transactionsQuery.error]);
 
   return <Modal title="История баллов" eyebrow="БОНУСНЫЙ СЧЁТ" onClose={onClose}>
     <section className={ui("balance-history-summary")}>
       <span className={ui("balance-history-icon")}><Icon name="gift" size={24} /></span>
       <div><span>Доступно сейчас</span><strong><Money value={balance} /></strong></div>
     </section>
-    {!transactions ? <div className={ui("modal-loader")}><span className={ui("loader")} />Загружаем историю…</div>
+    {transactionsQuery.isPending ? <div className={ui("modal-loader")}><span className={ui("loader")} />Загружаем историю…</div>
+      : !transactions ? <div className={ui("empty-state", "compact-empty")}><span><Icon name="gift" /></span><h3>История недоступна</h3><p>Закройте окно и попробуйте ещё раз.</p></div>
       : transactions.items.length === 0
         ? <div className={ui("empty-state", "compact-empty")}><span><Icon name="gift" /></span><h3>Операций пока нет</h3><p>Здесь появятся начисления и списания бонусов.</p></div>
         : <section className={ui("transaction-history")}><header><h3>Операции</h3><span>{transactions.items.length}</span></header><ul className={ui("transaction-list")}>{transactions.items.map((transaction) => {

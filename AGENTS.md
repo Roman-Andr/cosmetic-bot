@@ -13,7 +13,7 @@ The Mini App is under `frontend/`. Follow its feature-oriented layout: primitive
 - `uv run ruff check app tests && uv run ruff format --check app tests` runs Python lint and format checks.
 - `uv run mypy app && uv run pytest` runs strict typing and backend tests.
 - `cd frontend && bun install --frozen-lockfile && bun run dev` installs the locked frontend dependencies and starts Vite.
-- `cd frontend && bun run lint && bun run build` reproduces frontend CI checks.
+- `cd frontend && bun run lint && bun run test && bun run build` reproduces frontend CI checks.
 - `ENV_FILE=.env docker compose config --quiet` validates the stack configuration; `docker compose up --build` builds and starts all services.
 
 ## Temporary HTTPS for Local Mini App Testing

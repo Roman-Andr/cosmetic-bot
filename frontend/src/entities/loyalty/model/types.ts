@@ -134,3 +134,8 @@ export interface Administrator {
   is_active: boolean;
   created_at: string;
 }
+
+export interface LoyaltyCode {
+  code: string;
+  expires_at: string;
+}
