@@ -1,8 +1,4 @@
-{
-	email {$ACME_EMAIL}
-}
-
-{$DOMAIN} {
+:80 {
 	encode zstd gzip
 
 	header {

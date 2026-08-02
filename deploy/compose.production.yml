@@ -146,8 +146,7 @@ services:
       frontend:
         condition: service_healthy
     ports:
-      - "80:80"
-      - "443:443"
+      - "127.0.0.1:3000:80"
     volumes:
       - type: bind
         source: ${CADDYFILE_PATH:-/srv/cosmetic-bot/Caddyfile}

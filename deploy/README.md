@@ -52,10 +52,13 @@ The workflow runs CI before publishing, produces SBOM/provenance data, attaches 
 attestations, waits for production approval, and serializes deployments. Application, database,
 Telegram, Google, and VPN secrets remain only on the server.
 
-## TLS and backups
+## Existing mox edge, TLS, and backups
 
-Caddy obtains and renews the Let's Encrypt certificate automatically. Its `/data` and `/config`
-directories use persistent volumes. Only ports 80 and 443 are published by Compose.
+The production host already runs the mox mail server on public ports 80 and 443. Mox terminates
+TLS, obtains and renews the Let's Encrypt certificate for `romanandr.ru`, and forwards that host to
+`http://localhost:3000`. Compose therefore publishes Caddy only on `127.0.0.1:3000`; Caddy handles
+application routing but is not exposed publicly and must not compete with mox for ACME or edge
+ports. Preserve the `romanandr_app` mox web handler when updating the mail server.
 
 The backup service keeps daily PostgreSQL dumps for 180 days. Every deployment also stores a
 pre-migration custom-format dump under `/srv/cosmetic-bot/backups`; copy backups to independent
