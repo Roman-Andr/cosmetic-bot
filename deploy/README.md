@@ -81,7 +81,7 @@ TLS, obtains and renews the Let's Encrypt certificate for `romanandr.ru`, and fo
 application routing but is not exposed publicly and must not compete with mox for ACME or edge
 ports. Preserve the `romanandr_app` mox web handler when updating the mail server.
 
-The backup service keeps daily PostgreSQL dumps for 180 days and, with `RUN_ON_STARTUP=TRUE`, also
+The backup service keeps daily PostgreSQL dumps for 180 days and, with `BACKUP_ON_START=TRUE`, also
 takes one immediately on every start so a restart before midnight never skips a day. Every
 deployment additionally stores a pre-migration custom-format dump under `/srv/cosmetic-bot/backups`;
 the deploy script prunes those to the last 14. All of these dumps live on the server's single disk —

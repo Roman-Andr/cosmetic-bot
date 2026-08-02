@@ -177,9 +177,9 @@ services:
     environment:
       POSTGRES_HOST: postgres
       SCHEDULE: "@daily"
-      # Take a dump immediately on every (re)start so a container restart before
-      # midnight never silently skips a day of backups.
-      RUN_ON_STARTUP: "TRUE"
+      # Take a dump immediately on every (re)start (go-cron -i) so a container
+      # restart before midnight never silently skips a day of backups.
+      BACKUP_ON_START: "TRUE"
       BACKUP_KEEP_DAYS: "180"
       BACKUP_KEEP_WEEKS: "0"
       BACKUP_KEEP_MONTHS: "0"
