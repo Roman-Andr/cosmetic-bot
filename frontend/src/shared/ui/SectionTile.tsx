@@ -1,4 +1,5 @@
 import { Icon, type IconName } from "./Icon";
+import { ui } from "./classes";
 
 export function SectionTile({ active, icon, title, onClick }: {
   active: boolean;
@@ -6,7 +7,7 @@ export function SectionTile({ active, icon, title, onClick }: {
   title: string;
   onClick: () => void;
 }) {
-  return <button type="button" className={`workspace-tab${active ? " active" : ""}`} aria-pressed={active} onClick={onClick}>
+  return <button type="button" className={ui("workspace-tab")} aria-pressed={active} onClick={onClick}>
     <Icon name={icon} size={18} />
     <span>{title}</span>
   </button>;

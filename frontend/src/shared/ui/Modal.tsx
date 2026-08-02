@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useRef, type ReactNode } from "react";
 
 import { getTelegramApp } from "../lib/telegram";
+import { ui } from "./classes";
 import { Icon } from "./Icon";
 
 const PAGE_STATE_KEY = "__loyaltyPage";
@@ -58,13 +59,15 @@ export function Modal({ title, eyebrow, children, onClose, variant = "default" }
     };
   }, [navigateBack, pageId]);
 
-  return <div className="modal-backdrop" role="presentation">
-    <section className={`modal-sheet modal-${variant}`} role="dialog" aria-modal="true" aria-labelledby={titleId}>
-      <div className="modal-topline">
-        <button className="icon-button modal-close" type="button" aria-label="Назад" onClick={navigateBack}><Icon name="back" /></button>
-        <div>{eyebrow && <p className="overline">{eyebrow}</p>}<h2 id={titleId}>{title}</h2></div>
+  const variantClasses = { default: ui("modal-sheet"), success: ui("modal-sheet") } as const;
+
+  return <div className={ui("modal-backdrop")} role="presentation">
+    <section className={variantClasses[variant]} role="dialog" aria-modal="true" aria-labelledby={titleId}>
+      <div className={ui("modal-topline")}>
+        <button className={ui("icon-button", "modal-close")} type="button" aria-label="Назад" onClick={navigateBack}><Icon name="back" /></button>
+        <div>{eyebrow && <p className={ui("overline")} data-overline>{eyebrow}</p>}<h2 id={titleId}>{title}</h2></div>
       </div>
-      <div className="modal-page-content">{children}</div>
+      <div className={ui("modal-page-content")}>{children}</div>
     </section>
   </div>;
 }

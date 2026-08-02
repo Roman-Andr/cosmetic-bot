@@ -48,8 +48,8 @@ the new system records loyalty purchases in PostgreSQL and offers a customer Min
 
    ```bash
    cd frontend
-   npm ci
-   npm run dev
+   bun install --frozen-lockfile
+   bun run dev
    ```
 
 The Mini App requires Telegram `initData`; it deliberately does not authenticate

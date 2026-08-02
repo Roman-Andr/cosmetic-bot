@@ -9,6 +9,7 @@ import { getTelegramApp, syncTelegramAppearance } from "../shared/lib/telegram";
 import type { NoticeTone } from "../shared/model/notice";
 import { Icon } from "../shared/ui/Icon";
 import { SectionTile } from "../shared/ui/SectionTile";
+import { ui } from "../shared/ui/classes";
 import { OwnerDashboard } from "../widgets/admin/ui/OwnerDashboard";
 import { ProfilePanel } from "../widgets/profile/ui/ProfilePanel";
 
@@ -66,25 +67,25 @@ export default function App() {
   const role = profile?.admin_role ?? adminRole;
   const isOwner = role === "owner";
   const canSell = role === "sales" || isOwner;
-  if (loading) return <main className="screen loading-screen"><span className="loader" /><p>Открываем программу…</p></main>;
+  if (loading) return <main className={ui("screen", "loading-screen")}><span className={ui("loader")} /><p>Открываем программу…</p></main>;
 
-  return <main className="screen">
-    {notice && <div className={`notice notice-${notice.tone}`} role={notice.tone === "error" ? "alert" : "status"}>
-      <span className="notice-mark"><Icon name={notice.tone === "success" ? "check" : "close"} size={18} /></span>
+  return <main className={ui("screen")}>
+    {notice && <div className={ui("notice", notice.tone === "error" ? "notice-error" : "notice-success")} role={notice.tone === "error" ? "alert" : "status"}>
+      <span className={ui("notice-mark", notice.tone === "error" ? "notice-mark-error" : "notice-mark-success")}><Icon name={notice.tone === "success" ? "check" : "close"} size={18} /></span>
       <span>{notice.message}</span>
-      <button type="button" aria-label="Закрыть уведомление" onClick={() => setNotice(null)}><Icon name="close" size={18} /></button>
+      <button className={ui("notice-close")} type="button" aria-label="Закрыть уведомление" onClick={() => setNotice(null)}><Icon name="close" size={18} /></button>
     </div>}
     {profile ? <>
-      {canSell && <nav className="workspace-tabs" aria-label="Разделы кабинета">
+      {canSell && <nav className={ui("workspace-tabs")} aria-label="Разделы кабинета">
         <SectionTile active={tab === "profile"} icon="account" title="Мой профиль" onClick={() => setTab("profile")} />
         <SectionTile active={tab === "sale"} icon="sale" title="Продажа" onClick={() => setTab("sale")} />
         {isOwner && <SectionTile active={tab === "admin"} icon="shield" title="Управление" onClick={() => setTab("admin")} />}
       </nav>}
-      <div className="tab-content">
+      <div className={ui("tab-content")}>
         {tab === "profile" && <ProfilePanel profile={profile} onProfile={setProfile} onNotice={showNotice} />}
         {tab === "sale" && canSell && <SaleWorkspace onNotice={showNotice} />}
         {tab === "admin" && isOwner && <OwnerDashboard onNotice={showNotice} />}
       </div>
-    </> : canSell ? <><nav className="workspace-tabs" aria-label="Разделы кабинета"><SectionTile active={tab === "sale"} icon="sale" title="Продажа" onClick={() => setTab("sale")} />{isOwner && <SectionTile active={tab === "admin"} icon="shield" title="Управление" onClick={() => setTab("admin")} />}</nav>{tab === "admin" && isOwner ? <OwnerDashboard onNotice={showNotice} /> : <SaleWorkspace onNotice={showNotice} />}</> : <RegistrationPanel contactReady={contactReady} onContactReady={setContactReady} onProfile={setProfile} onNotice={showNotice} />}
+    </> : canSell ? <><nav className={ui("workspace-tabs")} aria-label="Разделы кабинета"><SectionTile active={tab === "sale"} icon="sale" title="Продажа" onClick={() => setTab("sale")} />{isOwner && <SectionTile active={tab === "admin"} icon="shield" title="Управление" onClick={() => setTab("admin")} />}</nav>{tab === "admin" && isOwner ? <OwnerDashboard onNotice={showNotice} /> : <SaleWorkspace onNotice={showNotice} />}</> : <RegistrationPanel contactReady={contactReady} onContactReady={setContactReady} onProfile={setProfile} onNotice={showNotice} />}
   </main>;
 }
