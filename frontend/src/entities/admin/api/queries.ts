@@ -1,16 +1,15 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { api } from "../../../shared/api/client";
+import type { PurchasePage, Tier } from "../../loyalty/model/types";
 import type {
   Administrator,
   AdminAccess,
   BuyerLookup,
   CustomerDetail,
   CustomerSearchResult,
-  PurchasePage,
   Stats,
-  Tier,
-} from "../../loyalty/model/types";
+} from "../model/types";
 import { adminKeys } from "./queryKeys";
 
 export function useAdminAccessQuery() {

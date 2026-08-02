@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime
-from decimal import Decimal, InvalidOperation
-from io import BytesIO
+from decimal import InvalidOperation
 from uuid import UUID
 
 from aiogram import Bot, F, Router
@@ -18,9 +17,7 @@ from aiogram.types import (
     InlineKeyboardMarkup,
     Message,
 )
-from openpyxl import Workbook
-from sqlalchemy import delete, func, select
-from sqlalchemy.orm import selectinload
+from sqlalchemy import func, select
 
 from app.bot.keyboards import (
     customer_menu,
@@ -36,19 +33,18 @@ from app.db.session import SessionLocal
 from app.models import (
     AdminRole,
     AdminUser,
-    AuditEvent,
     BlockedUser,
     ContactShare,
     Customer,
     LoyaltyAccount,
-    LoyaltyCode,
-    LoyaltyTierRule,
     Product,
     Purchase,
     SupportDialog,
     SupportDialogStatus,
     SupportForward,
 )
+from app.services.customer_data import InvalidPhoneError, mask_phone, normalize_phone
+from app.services.customer_search import search_customer_accounts
 from app.services.loyalty import (
     InvalidCodeError,
     LoyaltyError,
@@ -56,22 +52,12 @@ from app.services.loyalty import (
     ProductSelection,
     money,
 )
+from app.services.reports import customer_report, purchase_report
+from app.services.tier_rules import list_active_tiers, parse_tier_rules, replace_active_tiers
 
 logger = logging.getLogger(__name__)
 router = Router(name="customer-and-admin-workflows")
 settings = get_settings()
-
-
-def normalize_phone(phone: str) -> str:
-    """Keep the same normalized phone representation used by API registration."""
-    return f"+{''.join(character for character in phone if character.isdigit())}"
-
-
-def mask_phone(phone: str) -> str:
-    """Show sales administrators enough context without exposing all digits."""
-    if len(phone) <= 5:
-        return phone
-    return f"{phone[:4]}{'*' * max(1, len(phone) - 6)}{phone[-2:]}"
 
 
 async def get_admin_role(telegram_user_id: int) -> AdminRole | None:
@@ -157,7 +143,11 @@ async def contact_shared(message: Message) -> None:
     if message.contact.user_id != message.from_user.id:
         await message.answer("Пожалуйста, поделитесь своим собственным номером телефона.")
         return
-    phone = normalize_phone(message.contact.phone_number)
+    try:
+        phone = normalize_phone(message.contact.phone_number)
+    except InvalidPhoneError:
+        await message.answer("Telegram передал некорректный номер телефона.")
+        return
     async with SessionLocal() as session:
         share = await session.get(ContactShare, message.from_user.id)
         if share is None:
@@ -548,35 +538,13 @@ async def owner_find_customer_command(message: Message, command: CommandObject) 
             parse_mode="HTML",
         )
         return
-    condition = Customer.full_name.ilike(f"%{query}%") | Customer.phone.ilike(f"%{query}%")
     async with SessionLocal() as session:
-        rows = list(
-            (
-                await session.execute(
-                    select(Customer, LoyaltyAccount)
-                    .join(LoyaltyAccount, LoyaltyAccount.customer_id == Customer.id)
-                    .where(condition)
-                    .order_by(Customer.full_name)
-                    .limit(20)
-                )
-            ).all()
+        rows = await search_customer_accounts(
+            session,
+            query,
+            code_pepper=settings.loyalty_code_pepper,
+            limit=20,
         )
-        if query.isdigit() and len(query) == 6:
-            from app.services.loyalty import code_digest
-
-            code = await session.scalar(
-                select(LoyaltyCode)
-                .where(LoyaltyCode.code_digest == code_digest(query, settings.loyalty_code_pepper))
-                .limit(1)
-            )
-            if code is not None:
-                row = await session.execute(
-                    select(Customer, LoyaltyAccount)
-                    .join(LoyaltyAccount, LoyaltyAccount.customer_id == Customer.id)
-                    .where(LoyaltyAccount.id == code.account_id)
-                )
-                found = row.one_or_none()
-                rows = [found] if found is not None else rows
     if not rows:
         await message.answer("Клиенты не найдены.")
         return
@@ -594,32 +562,9 @@ async def owner_export_customers_command(message: Message) -> None:
     if not await require_owner_message(message):
         return
     async with SessionLocal() as session:
-        rows = list(
-            (
-                await session.execute(
-                    select(Customer, LoyaltyAccount)
-                    .join(LoyaltyAccount, LoyaltyAccount.customer_id == Customer.id)
-                    .order_by(Customer.created_at.desc())
-                )
-            ).all()
-        )
-    workbook = Workbook(write_only=True)
-    sheet = workbook.create_sheet("Клиенты")
-    sheet.append(["ФИО", "Телефон", "Дата регистрации", "Баланс", "Оборот"])
-    for customer, account in rows:
-        sheet.append(
-            [
-                customer.full_name,
-                customer.phone,
-                customer.created_at.isoformat(),
-                account.current_balance,
-                account.lifetime_turnover,
-            ]
-        )
-    output = BytesIO()
-    workbook.save(output)
+        content = await customer_report(session)
     await message.answer_document(
-        BufferedInputFile(output.getvalue(), filename="customers.xlsx"),
+        BufferedInputFile(content, filename="customers.xlsx"),
         caption="Выгрузка клиентов",
     )
 
@@ -630,38 +575,9 @@ async def owner_export_purchases_command(message: Message) -> None:
     if not await require_owner_message(message):
         return
     async with SessionLocal() as session:
-        rows = list(
-            (
-                await session.execute(
-                    select(Purchase, Customer)
-                    .join(Customer, Customer.id == Purchase.customer_id)
-                    .options(selectinload(Purchase.items))
-                    .order_by(Purchase.created_at.desc())
-                )
-            )
-            .unique()
-            .all()
-        )
-    workbook = Workbook(write_only=True)
-    sheet = workbook.create_sheet("Покупки")
-    sheet.append(["Дата", "Клиент", "Сумма", "Списано", "Начислено", "Кешбэк", "Товары"])
-    for purchase, customer in rows:
-        source = "День рождения" if purchase.cashback_source.value == "birthday" else "Уровень"
-        sheet.append(
-            [
-                purchase.created_at.isoformat(),
-                customer.full_name,
-                purchase.total_amount,
-                purchase.bonus_redeemed,
-                purchase.cashback_accrued,
-                f"{source} · {purchase.cashback_percent}%",
-                ", ".join(item.title_snapshot for item in purchase.items),
-            ]
-        )
-    output = BytesIO()
-    workbook.save(output)
+        content = await purchase_report(session)
     await message.answer_document(
-        BufferedInputFile(output.getvalue(), filename="purchases.xlsx"),
+        BufferedInputFile(content, filename="purchases.xlsx"),
         caption="Выгрузка покупок",
     )
 
@@ -736,15 +652,7 @@ async def owner_tiers_start(callback: CallbackQuery, state: FSMContext) -> None:
         await callback.answer("Недостаточно прав", show_alert=True)
         return
     async with SessionLocal() as session:
-        tiers = list(
-            (
-                await session.scalars(
-                    select(LoyaltyTierRule)
-                    .where(LoyaltyTierRule.is_active.is_(True))
-                    .order_by(LoyaltyTierRule.minimum_turnover)
-                )
-            ).all()
-        )
+        tiers = await list_active_tiers(session)
     current = ", ".join(f"{tier.minimum_turnover}:{tier.cashback_percent}" for tier in tiers)
     await state.set_state(OwnerStates.tier_rules)
     await callback.answer()
@@ -769,31 +677,6 @@ async def owner_tiers_command(message: Message, state: FSMContext) -> None:
     )
 
 
-def parse_tier_rules(raw: str) -> list[tuple[Decimal, Decimal]]:
-    """Parse a compact owner-only tier table and reject ambiguous configurations."""
-    chunks = [chunk.strip() for chunk in raw.split(",") if chunk.strip()]
-    if not 1 <= len(chunks) <= 10:
-        raise ValueError("Количество уровней должно быть от 1 до 10")
-    rules: list[tuple[Decimal, Decimal]] = []
-    for chunk in chunks:
-        threshold_text, separator, percent_text = chunk.partition(":")
-        if not separator:
-            raise ValueError("Используйте формат порог:процент")
-        threshold = money(threshold_text.strip().replace(",", "."))
-        percent = Decimal(percent_text.strip().replace(",", ".")).quantize(Decimal("0.01"))
-        if threshold < 0 or not Decimal("0") <= percent <= Decimal("100"):
-            raise ValueError("Порог должен быть неотрицательным, процент — от 0 до 100")
-        rules.append((threshold, percent))
-    thresholds = [threshold for threshold, _ in rules]
-    if (
-        thresholds[0] != 0
-        or thresholds != sorted(thresholds)
-        or len(set(thresholds)) != len(thresholds)
-    ):
-        raise ValueError("Первый порог должен быть 0, остальные — строго возрастать")
-    return rules
-
-
 @router.message(OwnerStates.tier_rules, F.text)
 async def owner_tiers_finish(message: Message, state: FSMContext) -> None:
     """Atomically replace tier rules and retain an owner audit trail."""
@@ -801,47 +684,15 @@ async def owner_tiers_finish(message: Message, state: FSMContext) -> None:
         return
     try:
         rules = parse_tier_rules(message.text or "")
-    except (InvalidOperation, ValueError) as exc:
+    except ValueError as exc:
         await message.answer(f"Не удалось сохранить уровни: {exc}")
         return
     async with SessionLocal() as session:
-        previous = list(
-            (
-                await session.scalars(
-                    select(LoyaltyTierRule).where(LoyaltyTierRule.is_active.is_(True))
-                )
-            ).all()
+        await replace_active_tiers(
+            session,
+            rules,
+            actor_telegram_id=message.from_user.id,
         )
-        await session.execute(delete(LoyaltyTierRule))
-        session.add_all(
-            LoyaltyTierRule(
-                minimum_turnover=threshold,
-                cashback_percent=percent,
-                updated_by_telegram_id=message.from_user.id,
-            )
-            for threshold, percent in rules
-        )
-        session.add(
-            AuditEvent(
-                actor_telegram_id=message.from_user.id,
-                event_type="loyalty_tiers_replaced",
-                target_type="loyalty_tier_rules",
-                payload={
-                    "old": [
-                        {
-                            "minimum_turnover": str(tier.minimum_turnover),
-                            "cashback_percent": str(tier.cashback_percent),
-                        }
-                        for tier in previous
-                    ],
-                    "new": [
-                        {"minimum_turnover": str(threshold), "cashback_percent": str(percent)}
-                        for threshold, percent in rules
-                    ],
-                },
-            )
-        )
-        await session.commit()
     await state.clear()
     await message.answer("Уровни кешбэка сохранены. Они будут применяться к будущим покупкам.")
 

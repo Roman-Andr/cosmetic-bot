@@ -4,13 +4,10 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime, time
 from decimal import Decimal
-from io import BytesIO
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, Response, status
-from openpyxl import Workbook
-from sqlalchemy import delete, func, or_, select
-from sqlalchemy.orm import selectinload
+from sqlalchemy import func, or_, select
 
 from app.api.dependencies import (
     OwnerDependency,
@@ -21,12 +18,8 @@ from app.api.dependencies import (
 from app.models import (
     AdminRole,
     AdminUser,
-    AuditEvent,
-    CashbackSource,
     Customer,
     LoyaltyAccount,
-    LoyaltyCode,
-    LoyaltyTierRule,
     Product,
     Purchase,
 )
@@ -47,14 +40,17 @@ from app.schemas.admin import (
     TierRulesUpdateRequest,
 )
 from app.schemas.loyalty import PurchasePageResponse, PurchaseSummaryResponse
+from app.services.customer_data import mask_phone
+from app.services.customer_search import search_customer_accounts
 from app.services.loyalty import (
     InvalidCodeError,
     LoyaltyError,
     LoyaltyService,
     ProductNotFoundError,
     ProductSelection,
-    code_digest,
 )
+from app.services.reports import customer_report, purchase_report
+from app.services.tier_rules import TierRuleValue, list_active_tiers, replace_active_tiers
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -69,13 +65,6 @@ def as_utc_boundary(value: date | None, *, end: bool) -> datetime | None:
 def money_or_zero(value: Decimal | None) -> Decimal:
     """Normalise aggregate NULL values for API and XLSX output."""
     return value or Decimal("0.00")
-
-
-def mask_phone(phone: str) -> str:
-    """Show sales staff only enough digits to identify a customer at the till."""
-    if len(phone) <= 5:
-        return phone
-    return f"{phone[:4]}{'*' * max(1, len(phone) - 6)}{phone[-2:]}"
 
 
 @router.get("/access", response_model=AdminAccessResponse)
@@ -224,31 +213,12 @@ async def search_customers(
     query: str = Query(min_length=2, max_length=255),
 ) -> list[CustomerSearchResponse]:
     """Find customers by name, phone, or an active/current six-digit code."""
-    condition = or_(
-        Customer.full_name.ilike(f"%{query.strip()}%"), Customer.phone.ilike(f"%{query.strip()}%")
+    rows = await search_customer_accounts(
+        session,
+        query,
+        code_pepper=settings.loyalty_code_pepper,
+        limit=30,
     )
-    statement = (
-        select(Customer, LoyaltyAccount)
-        .join(LoyaltyAccount, LoyaltyAccount.customer_id == Customer.id)
-        .where(condition)
-        .order_by(Customer.full_name)
-        .limit(30)
-    )
-    rows = list((await session.execute(statement)).all())
-
-    if query.isdigit() and len(query) == 6:
-        digest = code_digest(query, settings.loyalty_code_pepper)
-        code_rows = list(
-            (
-                await session.execute(
-                    select(Customer, LoyaltyAccount)
-                    .join(LoyaltyAccount, LoyaltyAccount.customer_id == Customer.id)
-                    .join(LoyaltyCode, LoyaltyCode.account_id == LoyaltyAccount.id)
-                    .where(LoyaltyCode.code_digest == digest)
-                )
-            ).all()
-        )
-        rows = code_rows or rows
 
     return [
         CustomerSearchResponse(
@@ -355,15 +325,7 @@ async def get_stats(
         select(func.coalesce(func.sum(LoyaltyAccount.current_balance), 0))
     )
 
-    tiers = list(
-        (
-            await session.scalars(
-                select(LoyaltyTierRule)
-                .where(LoyaltyTierRule.is_active.is_(True))
-                .order_by(LoyaltyTierRule.minimum_turnover)
-            )
-        ).all()
-    )
+    tiers = await list_active_tiers(session)
     accounts = list((await session.scalars(select(LoyaltyAccount.lifetime_turnover))).all())
     tier_distribution = {f"{tier.cashback_percent}%": 0 for tier in tiers}
     for turnover_value in accounts:
@@ -385,15 +347,7 @@ async def get_stats(
 @router.get("/tiers", response_model=list[TierRuleResponse])
 async def get_tiers(session: SessionDependency, _: OwnerDependency) -> list[TierRuleResponse]:
     """List current owner-configurable loyalty thresholds."""
-    tiers = list(
-        (
-            await session.scalars(
-                select(LoyaltyTierRule)
-                .where(LoyaltyTierRule.is_active.is_(True))
-                .order_by(LoyaltyTierRule.minimum_turnover)
-            )
-        ).all()
-    )
+    tiers = await list_active_tiers(session)
     return [
         TierRuleResponse(
             id=tier.id,
@@ -411,40 +365,17 @@ async def replace_tiers(
     owner: OwnerDependency,
 ) -> list[TierRuleResponse]:
     """Replace active rules and persist the old/new configuration in the audit log."""
-    old_rules = list(
-        (
-            await session.scalars(
-                select(LoyaltyTierRule).where(LoyaltyTierRule.is_active.is_(True))
+    new_rules = await replace_active_tiers(
+        session,
+        [
+            TierRuleValue(
+                minimum_turnover=rule.minimum_turnover,
+                cashback_percent=rule.cashback_percent,
             )
-        ).all()
+            for rule in payload.rules
+        ],
+        actor_telegram_id=owner.telegram_user_id,
     )
-    old_payload = [
-        {
-            "minimum_turnover": str(rule.minimum_turnover),
-            "cashback_percent": str(rule.cashback_percent),
-        }
-        for rule in old_rules
-    ]
-    new_payload = [rule.model_dump(mode="json") for rule in payload.rules]
-    await session.execute(delete(LoyaltyTierRule))
-    new_rules = [
-        LoyaltyTierRule(
-            minimum_turnover=rule.minimum_turnover,
-            cashback_percent=rule.cashback_percent,
-            updated_by_telegram_id=owner.telegram_user_id,
-        )
-        for rule in payload.rules
-    ]
-    session.add_all(new_rules)
-    session.add(
-        AuditEvent(
-            actor_telegram_id=owner.telegram_user_id,
-            event_type="loyalty_tiers_replaced",
-            target_type="loyalty_tier_rules",
-            payload={"old": old_payload, "new": new_payload},
-        )
-    )
-    await session.commit()
     return [
         TierRuleResponse(
             id=tier.id,
@@ -509,12 +440,10 @@ async def add_sales_administrator(
     )
 
 
-def workbook_response(workbook: Workbook, filename: str) -> Response:
-    """Serialize a workbook as an XLSX download without writing personal data to disk."""
-    output = BytesIO()
-    workbook.save(output)
+def workbook_response(content: bytes, filename: str) -> Response:
+    """Return an in-memory XLSX report as an owner-only download."""
     return Response(
-        content=output.getvalue(),
+        content=content,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
@@ -523,41 +452,7 @@ def workbook_response(workbook: Workbook, filename: str) -> Response:
 @router.get("/exports/customers")
 async def export_customers(session: SessionDependency, _: OwnerDependency) -> Response:
     """Build the approved customer export on demand for the owner only."""
-    rows = list(
-        (
-            await session.execute(
-                select(Customer, LoyaltyAccount)
-                .join(LoyaltyAccount, LoyaltyAccount.customer_id == Customer.id)
-                .order_by(Customer.created_at.desc())
-            )
-        ).all()
-    )
-    workbook = Workbook(write_only=True)
-    sheet = workbook.create_sheet("Клиенты")
-    sheet.append(["ФИО", "Телефон", "Дата регистрации", "Уровень", "Баланс", "Оборот"])
-    tiers = list(
-        (
-            await session.scalars(
-                select(LoyaltyTierRule)
-                .where(LoyaltyTierRule.is_active.is_(True))
-                .order_by(LoyaltyTierRule.minimum_turnover)
-            )
-        ).all()
-    )
-    for customer, account in rows:
-        eligible = [tier for tier in tiers if tier.minimum_turnover <= account.lifetime_turnover]
-        cashback_percent = eligible[-1].cashback_percent if eligible else Decimal("0")
-        sheet.append(
-            [
-                customer.full_name,
-                customer.phone,
-                customer.created_at.isoformat(),
-                f"{cashback_percent}%",
-                account.current_balance,
-                account.lifetime_turnover,
-            ]
-        )
-    return workbook_response(workbook, "customers.xlsx")
+    return workbook_response(await customer_report(session), "customers.xlsx")
 
 
 @router.get("/exports/purchases")
@@ -568,49 +463,9 @@ async def export_purchases(
     date_to: date | None = None,
 ) -> Response:
     """Build the approved purchase export with selected product snapshots."""
-    statement = (
-        select(Purchase, Customer)
-        .join(Customer, Customer.id == Purchase.customer_id)
-        .options(selectinload(Purchase.items))
-        .order_by(Purchase.created_at.desc())
-    )
     start = as_utc_boundary(date_from, end=False)
     end = as_utc_boundary(date_to, end=True)
-    if start is not None:
-        statement = statement.where(Purchase.created_at >= start)
-    if end is not None:
-        statement = statement.where(Purchase.created_at <= end)
-    rows = list((await session.execute(statement)).unique().all())
-
-    workbook = Workbook(write_only=True)
-    sheet = workbook.create_sheet("Покупки")
-    sheet.append(
-        [
-            "Дата",
-            "Клиент",
-            "Сумма",
-            "Списано бонусов",
-            "Начислено бонусов",
-            "Кешбэк",
-            "Администратор",
-            "Товары",
-        ]
+    return workbook_response(
+        await purchase_report(session, date_from=start, date_to=end),
+        "purchases.xlsx",
     )
-    for purchase, customer in rows:
-        sheet.append(
-            [
-                purchase.created_at.isoformat(),
-                customer.full_name,
-                purchase.total_amount,
-                purchase.bonus_redeemed,
-                purchase.cashback_accrued,
-                (
-                    f"День рождения · {purchase.cashback_percent}%"
-                    if purchase.cashback_source is CashbackSource.BIRTHDAY
-                    else f"Уровень · {purchase.cashback_percent}%"
-                ),
-                purchase.recorded_by_telegram_id,
-                ", ".join(item.title_snapshot for item in purchase.items),
-            ]
-        )
-    return workbook_response(workbook, "purchases.xlsx")

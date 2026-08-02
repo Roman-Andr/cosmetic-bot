@@ -13,7 +13,7 @@ from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
 from typing import Protocol
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import Select, select, update
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
@@ -30,6 +30,7 @@ from app.models import (
     Purchase,
     PurchaseItem,
 )
+from app.services.tier_rules import get_current_tier
 
 MONEY_QUANTUM = Decimal("0.01")
 MAX_BONUS_SHARE = Decimal("0.10")
@@ -475,16 +476,7 @@ class LoyaltyService:
         )
 
     async def _current_tier(self, session: AsyncSession, turnover: Decimal) -> LoyaltyTierRule:
-        statement: Select[tuple[LoyaltyTierRule]] = (
-            select(LoyaltyTierRule)
-            .where(
-                LoyaltyTierRule.is_active.is_(True),
-                LoyaltyTierRule.minimum_turnover <= turnover,
-            )
-            .order_by(LoyaltyTierRule.minimum_turnover.desc())
-            .limit(1)
-        )
-        tier = await session.scalar(statement)
+        tier = await get_current_tier(session, turnover)
         if tier is None:
             raise LoyaltyError("No active loyalty tier applies to this account")
         return tier

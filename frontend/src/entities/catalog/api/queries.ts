@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { api } from "../../../shared/api/client";
-import type { Product } from "../../loyalty/model/types";
+import type { Product } from "../model/types";
 
 export function useProductsQuery(query: string, enabled: boolean) {
   return useQuery({

@@ -1,24 +1,22 @@
 import { useEffect, useState, type FormEvent } from "react";
 
 import {
-  useAddAdministratorMutation,
   useUpdateTiersMutation,
 } from "../../../entities/admin/api/mutations";
 import {
-  useAdministratorsQuery,
   useAdminStatsQuery,
   useAdminTiersQuery,
-  useCustomerPurchasesQuery,
-  useCustomerQuery,
   useCustomerSearchQuery,
 } from "../../../entities/admin/api/queries";
+import { AdministratorsModal } from "../../../features/administrator-management/ui/AdministratorsModal";
+import { CustomerModal } from "../../../features/customer-management/ui/CustomerModal";
 import type { Tier } from "../../../entities/loyalty/model/types";
 import { download } from "../../../shared/api/client";
 import { errorMessage, formatDate } from "../../../shared/lib/format";
 import { haptic } from "../../../shared/lib/telegram";
+import { useErrorNotice } from "../../../shared/lib/useErrorNotice";
 import type { NoticeHandler } from "../../../shared/model/notice";
 import { Icon } from "../../../shared/ui/Icon";
-import { Modal } from "../../../shared/ui/Modal";
 import { CurrencySymbol, Money } from "../../../shared/ui/Money";
 import { ui } from "../../../shared/ui/classes";
 
@@ -44,10 +42,7 @@ export function OwnerDashboard({ onNotice }: { onNotice: NoticeHandler }) {
     if (tiersQuery.data && !tiersDirty) setTiers(tiersQuery.data);
   }, [tiersDirty, tiersQuery.data]);
 
-  useEffect(() => {
-    const error = statsQuery.error ?? tiersQuery.error ?? customersQuery.error;
-    if (error) onNotice(errorMessage(error));
-  }, [customersQuery.error, onNotice, statsQuery.error, tiersQuery.error]);
+  useErrorNotice(onNotice, statsQuery.error, tiersQuery.error, customersQuery.error);
 
   const saveTiers = async (): Promise<void> => {
     try {
@@ -124,51 +119,4 @@ export function OwnerDashboard({ onNotice }: { onNotice: NoticeHandler }) {
 
 function OwnerTab({ active, icon, label, onClick }: { active: boolean; icon: "chart" | "search" | "gift"; label: string; onClick: () => void }) {
   return <button type="button" aria-pressed={active} onClick={onClick}><Icon name={icon} size={17} /><span>{label}</span></button>;
-}
-
-function CustomerModal({ customerId, onClose, onNotice }: { customerId: string; onClose: () => void; onNotice: NoticeHandler }) {
-  const customerQuery = useCustomerQuery(customerId);
-  const purchasesQuery = useCustomerPurchasesQuery(customerId);
-  const customer = customerQuery.data;
-  const purchases = purchasesQuery.data;
-
-  useEffect(() => {
-    const error = customerQuery.error ?? purchasesQuery.error;
-    if (error) onNotice(errorMessage(error));
-  }, [customerQuery.error, onNotice, purchasesQuery.error]);
-
-  return <Modal title="Карточка клиента" eyebrow="ПРОФИЛЬ" onClose={onClose}>
-    {!customer ? <div className={ui("modal-loader")}><span className={ui("loader")} />Загружаем клиента…</div> : <>
-      <div className={ui("customer-detail-head")}><span>{customer.full_name.slice(0, 1).toUpperCase()}</span><div><strong>{customer.full_name}</strong><small>{customer.phone} · с {formatDate(customer.registered_at)}</small></div></div>
-      <div className={ui("customer-detail-metrics")}><span>Баланс<b><Money value={customer.current_balance} /></b></span><span>Оборот<b><Money value={customer.lifetime_turnover} /></b></span></div>
-      <h3 className={ui("modal-section-title")}>Покупки</h3><ul className={ui("purchase-list")}>{purchasesQuery.isPending ? <li className={ui("empty-list")}>Загружаем покупки…</li> : purchases?.items.length ? purchases.items.map((purchase) => <li key={purchase.id}><span className={ui("purchase-date")}>{formatDate(purchase.created_at)}</span><strong><Money value={purchase.total_amount} /></strong><em><Money prefix="+" value={purchase.cashback_accrued} /></em></li>) : <li className={ui("empty-list")}>Покупок пока нет.</li>}</ul>
-    </>}
-  </Modal>;
-}
-
-function AdministratorsModal({ onClose, onNotice }: { onClose: () => void; onNotice: NoticeHandler }) {
-  const [telegramId, setTelegramId] = useState("");
-  const administratorsQuery = useAdministratorsQuery();
-  const addAdministratorMutation = useAddAdministratorMutation();
-  const administrators = administratorsQuery.data;
-
-  useEffect(() => {
-    if (administratorsQuery.error) onNotice(errorMessage(administratorsQuery.error));
-  }, [administratorsQuery.error, onNotice]);
-
-  const add = async (event: FormEvent): Promise<void> => {
-    event.preventDefault();
-    if (!/^\d+$/.test(telegramId)) { onNotice("Введите числовой Telegram ID."); return; }
-    try {
-      await addAdministratorMutation.mutateAsync(Number(telegramId));
-      setTelegramId("");
-      haptic("success");
-      onNotice("Sales-администратор добавлен.", "success");
-    } catch (error) { haptic("error"); onNotice(errorMessage(error)); }
-  };
-  return <Modal title="Команда" eyebrow="ДОСТУП К ПРОДАЖАМ" onClose={onClose}>
-    <p className={ui("muted")}>Sales-администратор может оформлять покупки в боте и Mini App, но не видит данные клиентов и настройки.</p>
-    <form className={ui("administrator-form")} onSubmit={(event) => void add(event)}><label className={ui("admin-search-field")}><Icon name="account" size={18} /><input className={ui("form-control")} aria-label="Telegram ID" inputMode="numeric" value={telegramId} onChange={(event) => setTelegramId(event.target.value.replace(/\D/g, ""))} placeholder="Telegram ID" /></label><button className={ui("primary-action", "auto-action")} disabled={addAdministratorMutation.isPending}>{addAdministratorMutation.isPending ? "Добавляем…" : "Добавить"}<Icon name="plus" /></button></form>
-    <ul className={ui("administrator-list")}>{administrators?.map((admin) => <li key={admin.telegram_user_id}><span className={admin.role === "owner" ? ui("role-dot-owner") : ui("role-dot-sales")} /><div><strong>{admin.role === "owner" ? "Главный администратор" : "Sales-администратор"}</strong><small>{admin.telegram_user_id}</small></div><em>{admin.is_active ? "Активен" : "Выключен"}</em></li>)}</ul>
-  </Modal>;
 }
