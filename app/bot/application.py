@@ -5,6 +5,7 @@ from __future__ import annotations
 import hmac
 
 from aiogram import Bot, Dispatcher
+from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.fsm.storage.redis import RedisStorage
 from aiogram.types import Update
 from fastapi import APIRouter, Header, HTTPException, Request, Response, status
@@ -15,7 +16,10 @@ from app.core.config import Settings
 
 def create_bot(settings: Settings) -> Bot:
     """Create one Telegram client shared by webhook handlers and outbox delivery."""
-    return Bot(token=settings.bot_token.get_secret_value())
+    session = None
+    if settings.telegram_proxy_url is not None:
+        session = AiohttpSession(proxy=settings.telegram_proxy_url.get_secret_value())
+    return Bot(token=settings.bot_token.get_secret_value(), session=session)
 
 
 def create_dispatcher(settings: Settings) -> Dispatcher:

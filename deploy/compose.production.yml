@@ -1,0 +1,201 @@
+name: cosmetic-bot
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "5"
+
+services:
+  postgres:
+    image: postgres:16-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777
+    env_file: ${APP_ENV_FILE:-/etc/cosmetic-bot/app.env}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+    init: true
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 1m
+    logging: *default-logging
+    networks: [internal]
+
+  redis:
+    image: redis:7-alpine@sha256:e7723ff73d963f5cc6d9c4643ea3d989527a402a319239054e9472a7fb9219a2
+    env_file: ${APP_ENV_FILE:-/etc/cosmetic-bot/app.env}
+    command:
+      - sh
+      - -ec
+      - exec redis-server --appendonly yes --requirepass "$$REDIS_PASSWORD"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli --no-auth-warning -a $$REDIS_PASSWORD ping | grep PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+    init: true
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+    networks: [internal]
+
+  hysteria:
+    image: ${HYSTERIA_IMAGE:?HYSTERIA_IMAGE is required}
+    command: ["client", "--config", "/run/secrets/hysteria.yaml"]
+    volumes:
+      - type: bind
+        source: ${HYSTERIA_CONFIG_FILE:-/etc/cosmetic-bot/secrets/hysteria.yaml}
+        target: /run/secrets/hysteria.yaml
+        read_only: true
+        bind:
+          create_host_path: false
+    healthcheck:
+      test: ["CMD", "nc", "-z", "127.0.0.1", "1080"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+    networks: [egress]
+
+  migrate:
+    image: ${BACKEND_IMAGE:?BACKEND_IMAGE is required}
+    env_file: ${APP_ENV_FILE:-/etc/cosmetic-bot/app.env}
+    command: ["alembic", "upgrade", "head"]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    networks: [internal]
+
+  backend:
+    image: ${BACKEND_IMAGE:?BACKEND_IMAGE is required}
+    env_file: ${APP_ENV_FILE:-/etc/cosmetic-bot/app.env}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      hysteria:
+        condition: service_healthy
+    volumes:
+      - type: bind
+        source: ${GOOGLE_CREDENTIALS_FILE:-/etc/cosmetic-bot/secrets/google-service-account.json}
+        target: /run/secrets/google-service-account.json
+        read_only: true
+        bind:
+          create_host_path: false
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health/ready')
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 20s
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 30s
+    logging: *default-logging
+    networks: [internal, egress]
+
+  frontend:
+    image: ${FRONTEND_IMAGE:?FRONTEND_IMAGE is required}
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs: [/tmp, /var/cache/nginx, /var/run]
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+    networks: [edge]
+
+  caddy:
+    image: caddy:2.10-alpine@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d
+    env_file: ${APP_ENV_FILE:-/etc/cosmetic-bot/app.env}
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - type: bind
+        source: ${CADDYFILE_PATH:-/srv/cosmetic-bot/Caddyfile}
+        target: /etc/caddy/Caddyfile
+        read_only: true
+        bind:
+          create_host_path: false
+      - caddy-data:/data
+      - caddy-config:/config
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+    networks: [edge, internal]
+
+  backup:
+    image: prodrigestivill/postgres-backup-local:16@sha256:a0103fbce0c48ccc7693ddbb2a2bfa733048db845354f635efef9e4566de185d
+    env_file: ${APP_ENV_FILE:-/etc/cosmetic-bot/app.env}
+    environment:
+      POSTGRES_HOST: postgres
+      SCHEDULE: "@daily"
+      BACKUP_KEEP_DAYS: "180"
+      BACKUP_KEEP_WEEKS: "0"
+      BACKUP_KEEP_MONTHS: "0"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - postgres-backups:/backups
+    restart: unless-stopped
+    init: true
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+    networks: [internal]
+
+volumes:
+  postgres-data:
+  redis-data:
+  postgres-backups:
+  caddy-data:
+  caddy-config:
+
+networks:
+  edge:
+  egress:
+  internal:
+    internal: true
