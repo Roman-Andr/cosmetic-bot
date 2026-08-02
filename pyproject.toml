@@ -24,9 +24,11 @@ cosmetic-api = "app.main:main"
 
 [dependency-groups]
 dev = [
+    "hypothesis>=6.165,<7",
     "mypy>=2.3.0,<3",
     "pytest>=9.1.1,<10",
     "pytest-asyncio>=1.4.0,<2",
+    "pytest-cov>=7.1,<8",
     "ruff>=0.9,<1",
     "types-openpyxl>=3.1,<4",
 ]
@@ -34,6 +36,11 @@ dev = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+addopts = "--cov=app --cov-report=term-missing"
+
+[tool.coverage.run]
+source = ["app"]
+branch = true
 
 [tool.ruff]
 target-version = "py312"

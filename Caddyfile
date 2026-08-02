@@ -5,6 +5,17 @@
 {$DOMAIN:romanandr.ru} {
 	encode zstd gzip
 
+	# frame-ancestors intentionally allows Telegram's own origins: the Mini App
+	# must still load inside Telegram Web's iframe. Verify in real Telegram
+	# clients before relying on this - if the Mini App fails to open after a
+	# deploy, drop the Content-Security-Policy line first.
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Content-Security-Policy "frame-ancestors 'self' https://web.telegram.org https://*.web.telegram.org https://telegram.org"
+	}
+
 	@api path /api/*
 	reverse_proxy @api backend:8000
 
