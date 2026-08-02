@@ -240,6 +240,10 @@ install -m 0600 "$RELEASE_FILE" "$RELEASE_DIR/release-$timestamp.env"
 printf '%s %s\n' "$timestamp" "$commit_sha" >>"$APP_DIR/deployments.log"
 chmod 0600 "$APP_DIR/deployments.log"
 
+# Reclaim disk from superseded images, but keep the last 30 days so the previous
+# release stays pullable locally for a fast rollback. Never fail a good deploy here.
+docker image prune -af --filter "until=720h" >/dev/null 2>&1 || true
+
 trap - ERR
 [[ -z "$previous_release" ]] || rm -f "$previous_release"
 log "deployment completed for $commit_sha"

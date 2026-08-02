@@ -22,6 +22,10 @@ services:
     security_opt:
       - no-new-privileges:true
     stop_grace_period: 1m
+    deploy:
+      resources:
+        limits:
+          memory: 1280M
     logging: *default-logging
     networks: [internal]
 
@@ -34,6 +38,10 @@ services:
       - exec redis-server --appendonly yes --requirepass "$$REDIS_PASSWORD"
     volumes:
       - redis-data:/data
+    deploy:
+      resources:
+        limits:
+          memory: 384M
     healthcheck:
       test: ["CMD-SHELL", "redis-cli --no-auth-warning -a $$REDIS_PASSWORD ping | grep PONG"]
       interval: 10s
@@ -123,6 +131,10 @@ services:
     security_opt:
       - no-new-privileges:true
     stop_grace_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 1024M
     logging: *default-logging
     networks: [internal, egress]
 
