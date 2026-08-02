@@ -6,7 +6,6 @@ import pytest
 from aiogram import Bot
 from aiogram.client.session.aiohttp import AiohttpSession
 
-from app.bot.application import create_bot
 from app.core.config import Settings
 
 
@@ -24,6 +23,8 @@ def settings_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
 @pytest.mark.usefixtures("settings_env")
 async def test_create_bot_uses_configured_proxy(monkeypatch: pytest.MonkeyPatch) -> None:
     """Route every aiogram request through the production SOCKS5 sidecar."""
+    from app.bot.application import create_bot
+
     monkeypatch.setenv("TELEGRAM_PROXY_URL", "socks5://hysteria:1080")
 
     bot = create_bot(Settings(_env_file=None))
@@ -39,6 +40,8 @@ async def test_create_bot_keeps_direct_session_without_proxy(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Keep local development usable when no proxy is configured."""
+    from app.bot.application import create_bot
+
     monkeypatch.delenv("TELEGRAM_PROXY_URL", raising=False)
 
     bot = create_bot(Settings(_env_file=None))
