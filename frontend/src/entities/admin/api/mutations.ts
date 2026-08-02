@@ -2,22 +2,16 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "../../../shared/api/client";
 import { loyaltyKeys } from "../../loyalty/api/queryKeys";
-import type { Administrator, SalePreview, SaleRecord, Tier } from "../../loyalty/model/types";
+import type { Tier } from "../../loyalty/model/types";
+import type {
+  Administrator,
+  SaleInput,
+  SalePreview,
+  SalePreviewInput,
+  SaleRecord,
+  TierRuleInput,
+} from "../model/types";
 import { adminKeys } from "./queryKeys";
-
-interface TierRuleInput {
-  cashback_percent: string;
-  minimum_turnover: string;
-}
-
-interface SalePreviewInput {
-  buyer_code: string;
-  total_amount: string;
-}
-
-interface SaleInput extends SalePreviewInput {
-  product_external_ids: string[];
-}
 
 export function useUpdateTiersMutation() {
   const queryClient = useQueryClient();

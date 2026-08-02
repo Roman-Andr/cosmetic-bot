@@ -21,7 +21,6 @@ from app.models import (
     ContactShare,
     Customer,
     LoyaltyAccount,
-    LoyaltyTierRule,
     Purchase,
 )
 from app.schemas.loyalty import (
@@ -37,40 +36,16 @@ from app.schemas.loyalty import (
     TierProgressResponse,
     TierResponse,
 )
+from app.services.customer_data import InvalidPhoneError, normalize_phone
 from app.services.loyalty import (
     MINSK_TIMEZONE,
     LoyaltyService,
     is_birthday_cashback_active,
 )
+from app.services.tier_rules import list_active_tiers
 
 router = APIRouter(prefix="/loyalty", tags=["loyalty"])
 CONTACT_SHARE_TTL = timedelta(minutes=15)
-
-
-def normalize_phone(phone: str) -> str:
-    """Normalize Telegram-provided phone numbers to a stable E.164-like value."""
-    digits = "".join(character for character in phone if character.isdigit())
-    if len(digits) < 7 or len(digits) > 15:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid phone"
-        )
-    return f"+{digits}"
-
-
-async def current_tier(session: SessionDependency, turnover: object) -> LoyaltyTierRule:
-    """Load the active rule that applies before the next purchase."""
-    tier = await session.scalar(
-        select(LoyaltyTierRule)
-        .where(LoyaltyTierRule.is_active.is_(True), LoyaltyTierRule.minimum_turnover <= turnover)
-        .order_by(LoyaltyTierRule.minimum_turnover.desc())
-        .limit(1)
-    )
-    if tier is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Loyalty programme has no active tiers",
-        )
-    return tier
 
 
 async def tier_progress(
@@ -78,15 +53,7 @@ async def tier_progress(
     turnover: object,
 ) -> TierProgressResponse:
     """Return all active tiers and progress within the current tier's next threshold."""
-    tiers = list(
-        (
-            await session.scalars(
-                select(LoyaltyTierRule)
-                .where(LoyaltyTierRule.is_active.is_(True))
-                .order_by(LoyaltyTierRule.minimum_turnover)
-            )
-        ).all()
-    )
+    tiers = await list_active_tiers(session)
     turnover_value = Decimal(str(turnover))
     eligible_indexes = [
         index for index, tier in enumerate(tiers) if tier.minimum_turnover <= turnover_value
@@ -213,7 +180,13 @@ async def register(
             status_code=status.HTTP_409_CONFLICT, detail="Loyalty profile already exists"
         )
 
-    phone = normalize_phone(contact_share.phone)
+    try:
+        phone = normalize_phone(contact_share.phone)
+    except InvalidPhoneError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Invalid phone",
+        ) from exc
     duplicate_phone = await session.scalar(select(Customer.id).where(Customer.phone == phone))
     if duplicate_phone is not None:
         raise HTTPException(
