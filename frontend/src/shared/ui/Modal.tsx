@@ -17,7 +17,10 @@ export function Modal({ title, eyebrow, children, onClose, variant = "default" }
   const titleId = useId();
   const pageId = useId();
   const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
   const navigateBack = useCallback((): void => {
     if (window.history.state?.[PAGE_STATE_KEY] === pageId) window.history.back();
