@@ -10,7 +10,7 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 
 COPY alembic.ini ./
-COPY README.MD ./
+COPY README.md ./
 COPY alembic ./alembic
 COPY app ./app
 RUN uv sync --frozen --no-dev
@@ -26,7 +26,7 @@ WORKDIR /app
 
 COPY --from=builder --chown=app:app /app/.venv /app/.venv
 COPY --from=builder --chown=app:app /app/alembic.ini ./
-COPY --from=builder --chown=app:app /app/README.MD ./
+COPY --from=builder --chown=app:app /app/README.md ./
 COPY --from=builder --chown=app:app /app/alembic ./alembic
 COPY --from=builder --chown=app:app /app/app ./app
 
