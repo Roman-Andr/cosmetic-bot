@@ -8,6 +8,13 @@ updates:
     directory: /frontend
     schedule:
       interval: weekly
+    ignore:
+      # `typescript` is intentionally pinned to the 6.x line for typescript-eslint
+      # compatibility; TS 7 is consumed separately via `@typescript/native` for
+      # `tsc -b` in the build script. See PR #38.
+      - dependency-name: typescript
+        update-types:
+          - version-update:semver-major
   - package-ecosystem: github-actions
     directory: /
     schedule:
