@@ -141,10 +141,17 @@ IFS= read -r registry_token || fail "missing ephemeral registry token on stdin"
 
 cleanup() {
     docker logout ghcr.io >/dev/null 2>&1 || true
-    unset GH_TOKEN registry_token
+    [[ -z "${DOCKER_CONFIG:-}" ]] || rm -rf "$DOCKER_CONFIG"
+    unset GH_TOKEN registry_token DOCKER_CONFIG
 }
 trap cleanup EXIT
 
+# Keep the registry token out of root's persistent, unencrypted
+# ~/.docker/config.json: give this deploy its own tmpfs-backed Docker config
+# dir that gets wiped in cleanup() instead of leaving a stray auth entry
+# behind after `docker logout`.
+export DOCKER_CONFIG
+DOCKER_CONFIG=$(mktemp -d /run/cosmetic-bot-deploy-docker.XXXXXX)
 printf '%s' "$registry_token" | docker login ghcr.io -u github-actions --password-stdin >/dev/null
 export GH_TOKEN=$registry_token
 
