@@ -41,7 +41,7 @@ const styles = {
   "birthday-benefit-card": "relative grid grid-cols-[minmax(0,1fr)_112px] items-center gap-1 overflow-hidden bg-brand-soft p-5 text-ink [&>div]:relative [&>div]:z-1 [&>div]:grid [&>div]:content-center [&>div]:gap-1.5 [&_p]:m-0 [&_p]:text-body [&_p]:font-bold [&_p]:leading-[1.2] [&_p]:text-brand-dark [&_strong]:text-xl [&_strong]:font-black [&_strong]:leading-[1.05] [&_strong]:tracking-[-.035em] [&_small]:text-caption [&_small]:leading-[1.35] [&_small]:text-muted [&_img]:w-[142px] [&_img]:max-w-none [&_img]:self-center [&_img]:justify-self-end [&_img]:translate-x-[21px] [&_img]:translate-y-[5px]",
   "birthday-benefit-active": "bg-[#176a5c]",
   "customer-utility-row": "grid grid-cols-[minmax(0,1fr)_42px] gap-2 [&>button]:flex [&>button]:min-h-14 [&>button]:items-center [&>button]:justify-between [&>button]:gap-[9px] [&>button]:rounded-2xl [&>button]:bg-surface [&>button]:px-3.5 [&>button]:py-[11px] [&>button]:text-left [&>button]:text-small [&>button]:font-bold [&>button]:text-ink-soft [&>button]:transition-colors [&>button]:hover:bg-brand-soft [&>button>span]:inline-flex [&>button>span]:min-w-0 [&>button>span]:items-center [&>button>span]:gap-2 [&>button>svg]:text-brand",
-  "profile-utility-button": "grid! w-[42px]! place-items-center! p-0! bg-brand-soft! text-brand-dark!",
+  "profile-utility-button": "grid! w-[42px]! place-items-center! justify-center! p-0! bg-brand-soft! text-brand-dark!",
   "customer-member-note": "-mt-2.5 mx-[3px] mb-0 text-caption text-muted",
 
   "primary-action": "inline-flex min-h-[54px] w-full items-center justify-center gap-2 rounded-2xl bg-brand px-4 py-[13px] text-body font-bold text-on-brand transition hover:-translate-y-px hover:bg-brand-dark disabled:opacity-50",
