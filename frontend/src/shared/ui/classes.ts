@@ -134,7 +134,7 @@ const styles = {
   "program-pane-heading": "mb-2.5 flex items-start justify-between gap-2.5 [&_h3]:m-0 [&_h3]:text-subtitle [&_h3]:font-bold [&_h3]:text-ink",
   "tier-status-list": "grid list-none gap-2.5 p-0",
   "tier-status-card": "grid gap-[13px] rounded-[18px] border border-line bg-surface-soft p-4 text-ink-soft [&>p]:m-0 [&>p]:text-small [&>p]:leading-[1.4] [&>p]:text-muted",
-  "tier-status-current": "border-transparent bg-brand text-on-brand [&>p]:text-on-brand/70",
+  "tier-status-current": "border-transparent bg-brand! text-on-brand [&>p]:text-on-brand/70",
   "tier-status-reached": "border-brand/25",
   "tier-status-head": "flex items-start justify-between gap-3",
   "tier-status-name": "flex min-w-0 items-start gap-[9px] [&>span]:grid [&>span]:size-[27px] [&>span]:shrink-0 [&>span]:place-items-center [&>span]:rounded-[9px] [&>span]:bg-brand/15 [&>span]:text-brand [&>div]:grid [&>div]:min-w-0 [&>div]:gap-[3px] [&_strong]:text-body [&_strong]:font-black [&_strong]:uppercase [&_strong]:tracking-[-.02em] [&_strong]:text-ink [&_small]:text-caption [&_small]:text-muted",
