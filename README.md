@@ -88,14 +88,6 @@ protected GitHub `production` environment and a forced-command SSH key. Applicat
 only on the server. See [`deploy/README.md`](deploy/README.md) for provisioning, rollback, VPN, TLS,
 and backup details.
 
-## Privacy launch blocker
-
-The currently linked policy is https://velinacosmetic.by/privacy. Before public
-launch it must explicitly cover Telegram account identifiers, date of birth,
-gender, loyalty balances/purchases, processing purposes, retention and customer
-rights. The Mini App already requires an affirmative link-based consent, but the
-policy text itself has intentionally not been changed in this repository.
-
 ## Data and security notes
 
 - `.env`, credential JSON files, keys, backups and runtime state are ignored by Git.
