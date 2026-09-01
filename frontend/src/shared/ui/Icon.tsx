@@ -2,7 +2,8 @@ import type { ReactNode } from "react";
 
 export type IconName =
   | "account" | "bag" | "chart" | "gift" | "shield" | "code" | "sale"
-  | "search" | "close" | "check" | "plus" | "arrow" | "back" | "download" | "sparkle" | "copy" | "lock";
+  | "search" | "close" | "check" | "plus" | "arrow" | "back" | "download" | "sparkle" | "copy" | "lock"
+  | "sun" | "moon" | "contrast";
 
 export function Icon({ name, size = 21 }: { name: IconName; size?: number }) {
   const paths: Record<IconName, ReactNode> = {
@@ -23,6 +24,9 @@ export function Icon({ name, size = 21 }: { name: IconName; size?: number }) {
     sparkle: <path d="m12 3 1.4 5.6L19 10l-5.6 1.4L12 17l-1.4-5.6L5 10l5.6-1.4L12 3Zm6 12 .7 2.3L21 18l-2.3.7L18 21l-.7-2.3L15 18l2.3-.7L18 15Z" />,
     copy: <><rect x="8" y="8" width="11" height="11" rx="2" /><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" /></>,
     lock: <><rect x="5" y="10" width="14" height="10" rx="2.5" /><path d="M8 10V7a4 4 0 0 1 8 0v3" /></>,
+    sun: <><circle cx="12" cy="12" r="4" /><path d="M12 3v2m0 14v2M3 12h2m14 0h2M5.6 5.6 7 7m10 10 1.4 1.4M18.4 5.6 17 7M7 17l-1.4 1.4" /></>,
+    moon: <path d="M20 14.3A8.2 8.2 0 0 1 9.7 4a8.5 8.5 0 1 0 10.3 10.3Z" />,
+    contrast: <><circle cx="12" cy="12" r="8.2" /><path d="M12 3.8a8.2 8.2 0 0 1 0 16.4Z" fill="currentColor" stroke="none" /></>,
   };
   return <svg className={ui("icon")} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>;
 }
