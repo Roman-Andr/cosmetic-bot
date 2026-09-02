@@ -3,10 +3,32 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#000000" />
-    <style>html,body,#root{background:#000000}</style>
+    <meta name="theme-color" content="#f1f5f4" />
+    <style>html,body,#root{background:#f1f5f4}html[data-theme=dark],html[data-theme=dark] body,html[data-theme=dark] #root{background:#000000}</style>
     <title>Программа лояльности</title>
     <script src="https://telegram.org/js/telegram-web-app.js?63"></script>
+    <script>
+      // Stamp the stored theme before first paint so the app never flashes the
+      // default light canvas at a user who picked dark. Keep the storage key and
+      // the accepted values in sync with src/shared/lib/theme.ts.
+      (function () {
+        try {
+          var stored = window.localStorage.getItem("velina.theme");
+          var telegram = window.Telegram && window.Telegram.WebApp;
+          var client = (telegram && telegram.colorScheme)
+            || (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+          var theme = stored === "dark" || stored === "light" ? stored
+            : stored === "system" ? client
+            : "light";
+          document.documentElement.dataset.theme = theme;
+          if (theme === "dark") {
+            document.querySelector('meta[name="theme-color"]').setAttribute("content", "#000000");
+          }
+        } catch (error) {
+          document.documentElement.dataset.theme = "light";
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

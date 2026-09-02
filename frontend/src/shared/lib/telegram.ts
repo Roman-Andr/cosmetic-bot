@@ -32,20 +32,6 @@ export function getTelegramApp(): TelegramWebApp | null {
   return window.Telegram?.WebApp ?? null;
 }
 
-export function syncTelegramAppearance(): () => void {
-  const telegram = getTelegramApp();
-  if (!telegram) return () => undefined;
-
-  const apply = (): void => {
-    telegram.setHeaderColor?.("#000000");
-    telegram.setBackgroundColor?.("#000000");
-  };
-
-  apply();
-  telegram.onEvent("themeChanged", apply);
-  return () => telegram.offEvent("themeChanged", apply);
-}
-
 export function haptic(type: "success" | "error" | "warning" | "light" = "light"): void {
   const feedback = getTelegramApp()?.HapticFeedback;
   if (!feedback) return;
