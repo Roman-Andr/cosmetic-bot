@@ -6,7 +6,8 @@ import { RegistrationPanel } from "../features/registration/ui/RegistrationPanel
 import { SaleWorkspace } from "../features/sale/ui/SaleWorkspace";
 import { ApiError } from "../shared/api/client";
 import { errorMessage } from "../shared/lib/format";
-import { getTelegramApp, syncTelegramAppearance } from "../shared/lib/telegram";
+import { getTelegramApp } from "../shared/lib/telegram";
+import { initTheme } from "../shared/lib/theme";
 import type { NoticeTone } from "../shared/model/notice";
 import { Icon } from "../shared/ui/Icon";
 import { SectionTile } from "../shared/ui/SectionTile";
@@ -31,8 +32,7 @@ export default function App() {
     const telegram = getTelegramApp();
     telegram?.ready();
     telegram?.expand();
-    const stopSyncingAppearance = syncTelegramAppearance();
-    return stopSyncingAppearance;
+    return initTheme();
   }, []);
 
   useEffect(() => {

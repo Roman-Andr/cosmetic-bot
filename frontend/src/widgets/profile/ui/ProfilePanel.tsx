@@ -8,6 +8,7 @@ import { BirthdayInfoModal } from "../../../features/birthday/ui/BirthdayInfoMod
 import { LoyaltyCodeModal } from "../../../features/loyalty-code/ui/LoyaltyCodeCard";
 import { LoyaltyProgramModal } from "../../../features/loyalty-program/ui/LoyaltyProgramModal";
 import { PurchaseHistoryModal } from "../../../features/purchase-history/ui/PurchaseHistoryModal";
+import { ThemeSwitcher } from "../../../features/theme/ui/ThemeSwitcher";
 import { TierProgressCard } from "../../../features/tier-progress/ui/TierProgressCard";
 import { errorMessage, formatAmount, formatDate } from "../../../shared/lib/format";
 import { haptic } from "../../../shared/lib/telegram";
@@ -105,6 +106,7 @@ export function ProfilePanel({ profile, onNotice }: {
     {showBirthday && <BirthdayInfoModal profile={profile} onClose={() => setShowBirthday(false)} />}
     {showAccount && <Modal title="Ваши данные" eyebrow="ПРОФИЛЬ" onClose={() => setShowAccount(false)}>
       <section className={ui("account-modal-head")}><span>{firstName.slice(0, 1).toUpperCase()}</span><div><strong>{profile.full_name}</strong><small>Участник программы лояльности</small></div></section>
+      <ThemeSwitcher />
       <dl className={ui("detail-list", "account-details")}><div><dt>Телефон</dt><dd>{profile.phone}</dd></div><div><dt>Дата регистрации</dt><dd>{formatDate(profile.registered_at)}</dd></div><div><dt>Дата рождения</dt><dd>{formatDate(profile.birth_date)}</dd></div></dl>
       {editing ? <form className={ui("form", "compact")} onSubmit={(event) => void updateName(event)}><label>ФИО<input className={ui("form-control")} value={fullName} onChange={(event) => setFullName(event.target.value)} /></label><div className={ui("split-actions")}><button className={ui("secondary-action")} type="button" onClick={() => { setFullName(profile.full_name); setEditing(false); }}>Отмена</button><button className={ui("primary-action")} disabled={updateProfileMutation.isPending}>{updateProfileMutation.isPending ? "Сохраняем…" : "Сохранить"}</button></div></form> : <button className={ui("secondary-action", "account-edit")} type="button" onClick={() => setEditing(true)}>Изменить ФИО</button>}
     </Modal>}
