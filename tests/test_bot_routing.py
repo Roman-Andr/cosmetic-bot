@@ -46,7 +46,7 @@ def test_domain_routers_register_all_existing_handlers(bot_router: Router) -> No
     }
 
     assert handler_counts == {
-        "customer-workflows": {"message": 7},
+        "customer-workflows": {"message": 8},
         "sales-workflows": {"message": 4, "callback_query": 4},
         "owner-workflows": {"message": 10, "callback_query": 3},
         "support-workflows": {"message": 2, "callback_query": 4},

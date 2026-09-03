@@ -60,6 +60,18 @@ async def start(message: Message, command: CommandObject) -> None:
         await message.answer(text, reply_markup=keyboard)
 
 
+@router.message(Command("id"))
+async def show_telegram_id(message: Message) -> None:
+    """Return the sender's numeric Telegram ID for administrator onboarding."""
+    if message.from_user is None:
+        return
+    await message.answer(
+        f"Ваш Telegram ID: <code>{message.from_user.id}</code>\n"
+        "Отправьте его главному администратору для выдачи доступа.",
+        parse_mode="HTML",
+    )
+
+
 @router.message(F.contact)
 async def contact_shared(message: Message) -> None:
     """Persist a phone number only when Telegram confirms it belongs to the sender."""

@@ -20,6 +20,7 @@ the new system records loyalty purchases in PostgreSQL and offers a customer Min
   preview and confirmation service; owner configuration is available in both
   the Mini App and bot commands (`/stats`, `/find`, `/admins`, `/addsales`,
   `/tiers`, `/exportcustomers`, `/exportpurchases`);
+- `/id` lets any user retrieve the numeric Telegram ID required for administrator onboarding;
 - customer-visible immutable bonus ledger and tier-progress data for the Mini App;
 - Google Sheets catalogue synchronization, support-chat block/unblock controls;
 - FastAPI API, React/Vite Telegram Mini App, PostgreSQL, Redis, Caddy HTTPS,
