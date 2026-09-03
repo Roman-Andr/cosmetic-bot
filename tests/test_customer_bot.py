@@ -37,8 +37,7 @@ async def test_show_telegram_id_returns_copyable_sender_id(
     await customer_router.show_telegram_id(message)
 
     message.answer.assert_awaited_once_with(
-        "Ваш Telegram ID: <code>123456789</code>\n"
-        "Отправьте его главному администратору для выдачи доступа.",
+        "Ваш Telegram ID: <code>123456789</code>",
         parse_mode="HTML",
     )
 

@@ -66,8 +66,7 @@ async def show_telegram_id(message: Message) -> None:
     if message.from_user is None:
         return
     await message.answer(
-        f"Ваш Telegram ID: <code>{message.from_user.id}</code>\n"
-        "Отправьте его главному администратору для выдачи доступа.",
+        f"Ваш Telegram ID: <code>{message.from_user.id}</code>",
         parse_mode="HTML",
     )
 
