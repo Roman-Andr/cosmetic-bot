@@ -13,6 +13,12 @@ the new system records loyalty purchases in PostgreSQL and offers a customer Min
 - one-hour, one-use six-digit customer codes, stored only as HMAC digests;
 - automatic bonus redemption capped at 10% of the full order and cashback on the
   cash-paid remainder;
+- bonus expiry: every accrual stays spendable for `BONUS_LIFETIME_MONTHS` (default 6)
+  through the same Minsk calendar day, purchases spend the soonest-expiring bonuses
+  first, and customers are reminded 14, 7 and 1 day before bonuses burn;
+- owner promotion campaigns in the Mini App: a scheduled broadcast to every customer
+  with optional picture and optional gift bonuses that expire on their own date;
+- an automatic birthday-cashback announcement on the first day of the birthday window;
 - immutable purchase and bonus ledger, optional multi-product catalogue selection,
   reliable customer notifications through an outbox;
 - owner/sales roles, owner search, XLSX exports, dashboard statistics and audit log;
@@ -96,3 +102,5 @@ and backup details.
   using this public repository.
 - Purchase corrections and returns are intentionally out of scope for the first
   release: confirmed purchases are immutable and do not alter loyalty balances.
+- Launched campaigns cannot be revoked: gift bonuses are ordinary immutable ledger
+  credits. A campaign can only be cancelled while it is still scheduled.

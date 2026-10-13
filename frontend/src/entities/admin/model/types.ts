@@ -84,3 +84,44 @@ export interface SalePreviewInput {
 export interface SaleInput extends SalePreviewInput {
   product_external_ids: string[];
 }
+
+export type CampaignStatus = "scheduled" | "completed" | "cancelled";
+
+export interface CampaignInput {
+  title: string;
+  message_text: string;
+  photo_file_id: string | null;
+  bonus_amount: string;
+  bonus_valid_until: string | null;
+  starts_at: string;
+}
+
+export interface CampaignPreview {
+  message_text: string;
+  audience_size: number;
+  total_bonus: string;
+}
+
+export interface Campaign {
+  id: string;
+  title: string;
+  message_text: string;
+  has_photo: boolean;
+  bonus_amount: string;
+  bonus_valid_until: string | null;
+  starts_at: string;
+  status: CampaignStatus;
+  recipients_count: number | null;
+  launched_at: string | null;
+  cancelled_at: string | null;
+  created_at: string;
+}
+
+export interface CampaignList {
+  audience_size: number;
+  items: Campaign[];
+}
+
+export interface CampaignPhoto {
+  photo_file_id: string;
+}

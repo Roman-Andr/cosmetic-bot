@@ -2,6 +2,7 @@ export const adminKeys = {
   all: ["admin"] as const,
   access: ["admin", "access"] as const,
   administrators: ["admin", "administrators"] as const,
+  campaigns: ["admin", "campaigns"] as const,
   customer: (customerId: string) => ["admin", "customers", "detail", customerId] as const,
   customerPurchases: (customerId: string) =>
     ["admin", "customers", "detail", customerId, "purchases"] as const,

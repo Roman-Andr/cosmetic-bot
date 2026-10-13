@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import Depends, Header, HTTPException, status
+from aiogram import Bot
+from fastapi import Depends, Header, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,6 +16,15 @@ from app.services.telegram_auth import TelegramAuthError, TelegramIdentity, vali
 
 SettingsDependency = Annotated[Settings, Depends(get_settings)]
 SessionDependency = Annotated[AsyncSession, Depends(get_session)]
+
+
+def get_bot(request: Request) -> Bot:
+    """Return the process-wide Telegram client attached in ``app.main``."""
+    bot: Bot = request.app.state.bot
+    return bot
+
+
+BotDependency = Annotated[Bot, Depends(get_bot)]
 
 
 async def get_telegram_identity(

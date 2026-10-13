@@ -18,8 +18,10 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     },
   });
   if (!response.ok) {
-    const payload = (await response.json().catch(() => null)) as { detail?: string } | null;
-    throw new ApiError(response.status, payload?.detail ?? "Не удалось выполнить запрос.");
+    const payload = (await response.json().catch(() => null)) as { detail?: unknown } | null;
+    // FastAPI field validation returns a list of issues; only plain strings are user-facing.
+    const detail = typeof payload?.detail === "string" ? payload.detail : null;
+    throw new ApiError(response.status, detail ?? "Не удалось выполнить запрос. Проверьте введённые данные.");
   }
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;

@@ -17,11 +17,13 @@ The Mini App is under `frontend/`. Follow its feature-oriented layout: primitive
 
 ### Backend layout (`app/`)
 
-- `app/main.py` — the single FastAPI app. `lifespan()` seeds default data and starts four
+- `app/main.py` — the single FastAPI app. `lifespan()` seeds default data and starts six
   background `asyncio` tasks that live for the process lifetime: catalogue sync from Google
-  Sheets, the Telegram runtime (`run_telegram`), the notification outbox delivery loop, and the
-  health monitor loop. A single `Bot` and `Dispatcher` are constructed once at import time and
-  reused everywhere (webhook route, polling, notifications).
+  Sheets, the Telegram runtime (`run_telegram`), the notification outbox delivery loop, the
+  health monitor loop, the off-site backup delivery loop (`backup_delivery_loop`), and the
+  loyalty automation loop (`loyalty_automation_loop`). A single
+  `Bot` and `Dispatcher` are constructed once at import time and reused everywhere (webhook
+  route, polling, notifications, campaign photo uploads via `app.state.bot`).
 - `app/api/routes/` — HTTP routers: `loyalty.py` (customer-facing Mini App endpoints, e.g.
   `/api/loyalty/*`), `admin.py` (owner/sales endpoints, e.g. `/api/admin/*`), `health.py`.
 - `app/api/dependencies.py` — auth chain for HTTP requests: `X-Telegram-Init-Data` header →
@@ -39,6 +41,13 @@ The Mini App is under `frontend/`. Follow its feature-oriented layout: primitive
     bot's `/sale` flow and the Mini App's sales workspace call the *same* `LoyaltyService` methods
     (`preview_purchase`, `record_purchase`, `lookup_buyer`) so the two surfaces can never diverge
     on money math.
+  - `campaigns.py` — owner promotion campaigns: validation, the exact customer message
+    (gift terms are appended by the service, never left to the owner's text), and the
+    atomic launch that grants gift lots and queues the broadcast.
+  - `automation.py` — `loyalty_automation_loop`: every minute it launches due campaigns and
+    expires overdue bonus lots; once per Minsk day (10:00–21:00) it queues 14/7/1-day expiry
+    warnings and birthday-cashback announcements. It receives the session factory as a
+    parameter so the module stays importable in tests without settings.
   - `tier_rules.py` — owner-configurable turnover tiers.
   - `customer_data.py` / `customer_search.py` — phone normalization/masking and owner customer
     search.
@@ -46,6 +55,8 @@ The Mini App is under `frontend/`. Follow its feature-oriented layout: primitive
     `api/dependencies.py`).
   - `monitoring.py` — background health checks (disk, backup freshness, Redis) with Telegram
     alerting to the owner; explicitly cannot detect a fully dead process, see its module docstring.
+  - `backup_delivery.py` — sends each new daily database dump once to `BACKUP_TELEGRAM_ID` as an
+    off-site copy; the last delivered file name is kept in Redis.
   - `reports.py` — XLSX export generation for owner downloads.
   - `bootstrap.py` — first-run seeding of default settings (called from `lifespan`).
 - `app/models/domain.py` — all SQLAlchemy ORM models in one module. Money uses `Numeric(12, 2)`
@@ -80,6 +91,18 @@ convention:
   dates (`MINSK_TIMEZONE`), not UTC.
 - All monetary values pass through `money()` (`ROUND_HALF_UP`, 2 decimal places) except the bonus
   cap itself, which truncates (`ROUND_DOWN`).
+- Every credit (`accrual`, `promotion`) is a lot with its own `expires_at` — the Minsk midnight
+  after its last valid day (`BONUS_LIFETIME_MONTHS` after accrual; a campaign's own date for
+  gifts); debits never carry one (DB check `bonus_transaction_credit_expiry`). Every debit
+  (`redemption`, `expiration`) records which lots it consumed in append-only
+  `bonus_allocations`, soonest-expiring first (`allocate_debit`). The sum of open lot
+  remainders always equals `LoyaltyAccount.current_balance`; the release migration verifies this
+  and aborts on any mismatch.
+- Overdue lots are never spendable: `record_purchase` expires them inside its own locked
+  transaction before computing the redemption, and read paths (`lookup_buyer`, the profile)
+  show `usable_balance`, which excludes lots the background sweep has not debited yet.
+- Automated notifications carry a unique `NotificationOutbox.dedupe_key` and are inserted with
+  `ON CONFLICT DO NOTHING`, so retries and restarts never send a reminder twice.
 - Six-digit customer codes are one-hour, single-use, and stored only as an HMAC-SHA256 digest
   (`code_digest`, keyed by `LOYALTY_CODE_PEPPER`) — the plaintext code is never persisted.
   Generating a new code invalidates the account's previous unused code.
@@ -103,7 +126,7 @@ Feature-Sliced Design:
 - `features/` — one interactive flow per folder, e.g. `sale/` (the sales workspace shared in
   intent with the bot's `/sale` FSM), `registration/`, `loyalty-code/`, `bonus-history/`,
   `purchase-history/`, `tier-progress/`, `administrator-management/`, `customer-management/`,
-  `birthday/`.
+  `birthday/`, `campaigns/` (owner promotion composer and history).
 - `widgets/` — composed screens: `admin/OwnerDashboard.tsx`, `profile/ProfilePanel.tsx`.
 - `app/App.tsx` — root composition and providers (`QueryProvider`).
 
