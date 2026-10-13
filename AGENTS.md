@@ -17,10 +17,11 @@ The Mini App is under `frontend/`. Follow its feature-oriented layout: primitive
 
 ### Backend layout (`app/`)
 
-- `app/main.py` — the single FastAPI app. `lifespan()` seeds default data and starts five
+- `app/main.py` — the single FastAPI app. `lifespan()` seeds default data and starts six
   background `asyncio` tasks that live for the process lifetime: catalogue sync from Google
   Sheets, the Telegram runtime (`run_telegram`), the notification outbox delivery loop, the
-  health monitor loop, and the loyalty automation loop (`loyalty_automation_loop`). A single
+  health monitor loop, the off-site backup delivery loop (`backup_delivery_loop`), and the
+  loyalty automation loop (`loyalty_automation_loop`). A single
   `Bot` and `Dispatcher` are constructed once at import time and reused everywhere (webhook
   route, polling, notifications, campaign photo uploads via `app.state.bot`).
 - `app/api/routes/` — HTTP routers: `loyalty.py` (customer-facing Mini App endpoints, e.g.
@@ -54,6 +55,8 @@ The Mini App is under `frontend/`. Follow its feature-oriented layout: primitive
     `api/dependencies.py`).
   - `monitoring.py` — background health checks (disk, backup freshness, Redis) with Telegram
     alerting to the owner; explicitly cannot detect a fully dead process, see its module docstring.
+  - `backup_delivery.py` — sends each new daily database dump once to `BACKUP_TELEGRAM_ID` as an
+    off-site copy; the last delivered file name is kept in Redis.
   - `reports.py` — XLSX export generation for owner downloads.
   - `bootstrap.py` — first-run seeding of default settings (called from `lifespan`).
 - `app/models/domain.py` — all SQLAlchemy ORM models in one module. Money uses `Numeric(12, 2)`

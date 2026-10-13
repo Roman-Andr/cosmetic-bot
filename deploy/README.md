@@ -85,4 +85,8 @@ The backup service keeps daily PostgreSQL dumps for 180 days and, with `BACKUP_O
 takes one immediately on every start so a restart before midnight never skips a day. Every
 deployment additionally stores a pre-migration custom-format dump under `/srv/cosmetic-bot/backups`;
 the deploy script prunes those to the last 14. All of these dumps live on the server's single disk —
-copy them to independent storage and periodically test restoration.
+copy them to independent storage and periodically test restoration. When `BACKUP_TELEGRAM_ID` is
+set, the backend sends each new daily dump once, as a Telegram document, to that chat (checked
+every 30 minutes; the last delivered file name is kept in Redis). The dump holds customer
+personal data, so point it only at an operator's private chat. Dumps above Telegram's 50 MB bot
+upload limit are replaced by a warning message.
