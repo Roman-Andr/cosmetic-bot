@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from fastapi import APIRouter, HTTPException, Query, status
-from sqlalchemy import select
+from sqlalchemy import case, select
 
 from app.api.dependencies import (
     CustomerDependency,
@@ -17,13 +17,16 @@ from app.api.dependencies import (
 from app.models import (
     AdminRole,
     AdminUser,
+    BonusOperationType,
     BonusTransaction,
     ContactShare,
     Customer,
     LoyaltyAccount,
+    PromotionCampaign,
     Purchase,
 )
 from app.schemas.loyalty import (
+    BonusExpirationResponse,
     BonusTransactionPageResponse,
     BonusTransactionResponse,
     CodeResponse,
@@ -41,6 +44,9 @@ from app.services.loyalty import (
     MINSK_TIMEZONE,
     LoyaltyService,
     is_birthday_cashback_active,
+    next_expiration,
+    open_bonus_lots,
+    usable_balance,
 )
 from app.services.tier_rules import list_active_tiers
 
@@ -117,13 +123,16 @@ async def profile_response(
     tier = progress.current_tier
     admin = await session.get(AdminUser, customer.telegram_user_id)
     admin_role = admin.role if admin is not None and admin.is_active else None
+    now = datetime.now(UTC)
+    lots = await open_bonus_lots(session, account.id)
+    expiration = next_expiration(lots, now)
     return ProfileResponse(
         full_name=customer.full_name,
         phone=customer.phone,
         birth_date=customer.birth_date,
         gender=customer.gender,
         registered_at=customer.created_at,
-        current_balance=account.current_balance,
+        current_balance=usable_balance(account.current_balance, lots, now),
         lifetime_turnover=account.lifetime_turnover,
         tier=TierResponse(
             minimum_turnover=tier.minimum_turnover,
@@ -136,6 +145,15 @@ async def profile_response(
         ),
         birthday_cashback_percent=settings.birthday_cashback_percent,
         birthday_cashback_window_days=settings.birthday_cashback_window_days,
+        bonus_lifetime_months=settings.bonus_lifetime_months,
+        next_expiration=(
+            BonusExpirationResponse(
+                amount=expiration.amount,
+                valid_until=expiration.valid_until,
+            )
+            if expiration is not None
+            else None
+        ),
         is_owner=admin_role is AdminRole.OWNER,
         admin_role=admin_role,
         tier_progress=progress,
@@ -294,18 +312,32 @@ async def get_bonus_transactions(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Account missing",
         )
-    transactions = list(
-        (
-            await session.scalars(
-                select(BonusTransaction)
-                .where(BonusTransaction.account_id == account_id)
-                .order_by(BonusTransaction.created_at.desc())
-                .offset(offset)
-                .limit(limit + 1)
+    rows = (
+        await session.execute(
+            select(BonusTransaction, PromotionCampaign.title)
+            .outerjoin(PromotionCampaign, PromotionCampaign.id == BonusTransaction.campaign_id)
+            .where(BonusTransaction.account_id == account_id)
+            # One purchase writes expiration, redemption and accrual with a shared timestamp;
+            # list them newest-first in the order they happened, then by id for stable pages.
+            .order_by(
+                BonusTransaction.created_at.desc(),
+                case(
+                    (BonusTransaction.operation_type == BonusOperationType.EXPIRATION, 2),
+                    (BonusTransaction.operation_type == BonusOperationType.REDEMPTION, 1),
+                    else_=0,
+                ),
+                BonusTransaction.id,
             )
-        ).all()
-    )
+            .offset(offset)
+            .limit(limit + 1)
+        )
+    ).all()
     return BonusTransactionPageResponse(
-        items=[BonusTransactionResponse.model_validate(item) for item in transactions[:limit]],
-        next_offset=offset + limit if len(transactions) > limit else None,
+        items=[
+            BonusTransactionResponse.model_validate(transaction).model_copy(
+                update={"campaign_title": campaign_title}
+            )
+            for transaction, campaign_title in rows[:limit]
+        ],
+        next_offset=offset + limit if len(rows) > limit else None,
     )

@@ -10,7 +10,7 @@ import { LoyaltyProgramModal } from "../../../features/loyalty-program/ui/Loyalt
 import { PurchaseHistoryModal } from "../../../features/purchase-history/ui/PurchaseHistoryModal";
 import { ThemeSwitcher } from "../../../features/theme/ui/ThemeSwitcher";
 import { TierProgressCard } from "../../../features/tier-progress/ui/TierProgressCard";
-import { errorMessage, formatAmount, formatDate } from "../../../shared/lib/format";
+import { errorMessage, formatAmount, formatCalendarDate, formatDate } from "../../../shared/lib/format";
 import { haptic } from "../../../shared/lib/telegram";
 import type { NoticeHandler } from "../../../shared/model/notice";
 import { Icon } from "../../../shared/ui/Icon";
@@ -49,8 +49,8 @@ export function ProfilePanel({ profile, onNotice }: {
         previousIndex >= 0 ? previousIndex : transactions.length,
       );
       const accrued = newTransactions
-        .filter((transaction) => transaction.operation_type === "accrual")
-        .reduce((total, transaction) => total + Math.abs(Number(transaction.amount)), 0);
+        .filter((transaction) => Number(transaction.amount) > 0)
+        .reduce((total, transaction) => total + Number(transaction.amount), 0);
       if (accrued > 0) {
         haptic("success");
         onNotice(`Начислено баллов: +${formatAmount(accrued)}. Баланс обновлён.`, "success");
@@ -80,6 +80,7 @@ export function ProfilePanel({ profile, onNotice }: {
       <button type="button" className={ui("loyalty-tile", "points-tile")} onClick={() => setShowBalanceHistory(true)}>
         <div className={ui("tile-title-row")}><p>Мои баллы</p></div>
         <strong><Money value={profile.current_balance} /></strong>
+        {profile.next_expiration && <small className={ui("points-expiry")}><Icon name="clock" size={13} /><span><Money value={profile.next_expiration.amount} /> сгорят после {formatCalendarDate(profile.next_expiration.valid_until, { withYear: false })}</span></small>}
       </button>
       <button type="button" className={ui("loyalty-tile", "cashback-tile")} onClick={() => setShowCode(true)}>
         <span className={ui("cashback-code-mark")} aria-hidden="true"><i /><i /><i /><span><Icon name="sparkle" size={22} /></span></span>
@@ -101,7 +102,7 @@ export function ProfilePanel({ profile, onNotice }: {
 
     {showCode && <LoyaltyCodeModal onClose={() => setShowCode(false)} onNotice={onNotice} />}
     {showProgram && <LoyaltyProgramModal profile={profile} onClose={() => setShowProgram(false)} />}
-    {showBalanceHistory && <BonusHistoryModal balance={profile.current_balance} onClose={() => setShowBalanceHistory(false)} onNotice={onNotice} />}
+    {showBalanceHistory && <BonusHistoryModal balance={profile.current_balance} nextExpiration={profile.next_expiration} onClose={() => setShowBalanceHistory(false)} onNotice={onNotice} />}
     {showPurchases && <PurchaseHistoryModal onClose={() => setShowPurchases(false)} onNotice={onNotice} />}
     {showBirthday && <BirthdayInfoModal profile={profile} onClose={() => setShowBirthday(false)} />}
     {showAccount && <Modal title="Ваши данные" eyebrow="ПРОФИЛЬ" onClose={() => setShowAccount(false)}>

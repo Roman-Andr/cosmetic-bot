@@ -6,7 +6,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
 
-from app.models import AdminRole, CashbackSource
+from app.models import AdminRole, CampaignStatus, CashbackSource
 
 
 class ProductResponse(BaseModel):
@@ -146,3 +146,66 @@ class AdminUserResponse(BaseModel):
     role: str
     is_active: bool
     created_at: datetime
+
+
+class CampaignCreateRequest(BaseModel):
+    """Owner input for a scheduled promotion; business rules are checked by the service."""
+
+    title: str = Field(min_length=2, max_length=100)
+    message_text: str = Field(min_length=1, max_length=4096)
+    photo_file_id: str | None = Field(default=None, min_length=1, max_length=255)
+    bonus_amount: Decimal = Field(ge=0, le=1000, max_digits=10, decimal_places=2)
+    bonus_valid_until: date | None = None
+    starts_at: datetime
+
+    @field_validator("title", "message_text")
+    @classmethod
+    def text_must_not_be_blank(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("Text must not be blank")
+        return stripped
+
+
+class CampaignPreviewResponse(BaseModel):
+    """The exact message customers will receive and the size of the audience."""
+
+    message_text: str
+    audience_size: int
+    total_bonus: Decimal
+
+
+class CampaignResponse(BaseModel):
+    """A persisted promotion campaign as shown in the owner dashboard."""
+
+    id: UUID
+    title: str
+    message_text: str
+    has_photo: bool
+    bonus_amount: Decimal
+    bonus_valid_until: date | None
+    starts_at: datetime
+    status: CampaignStatus
+    recipients_count: int | None
+    launched_at: datetime | None
+    cancelled_at: datetime | None
+    created_at: datetime
+
+
+class CampaignListResponse(BaseModel):
+    """Campaign history plus the current number of customers a new campaign would reach."""
+
+    audience_size: int
+    items: list[CampaignResponse]
+
+
+class CampaignPhotoUploadRequest(BaseModel):
+    """A base64-encoded JPEG or PNG resized by the Mini App before upload."""
+
+    image_base64: str = Field(min_length=1, max_length=7_000_000)
+
+
+class CampaignPhotoUploadResponse(BaseModel):
+    """Telegram's reusable identifier for the uploaded campaign picture."""
+
+    photo_file_id: str

@@ -65,6 +65,16 @@ class BonusOperationType(StrEnum):
 
     ACCRUAL = "accrual"
     REDEMPTION = "redemption"
+    EXPIRATION = "expiration"
+    PROMOTION = "promotion"
+
+
+class CampaignStatus(StrEnum):
+    """Lifecycle of an owner-created promotion campaign."""
+
+    SCHEDULED = "scheduled"
+    COMPLETED = "completed"
+    CANCELLED = "cancelled"
 
 
 class SupportDialogStatus(StrEnum):
@@ -256,8 +266,43 @@ class PurchaseItem(Base, CreatedAtMixin):
     )
 
 
+class PromotionCampaign(Base, CreatedAtMixin):
+    """An owner-scheduled broadcast that may grant expiring gift bonuses to every customer."""
+
+    __tablename__ = "promotion_campaigns"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    title: Mapped[str] = mapped_column(String(100), nullable=False)
+    message_text: Mapped[str] = mapped_column(Text, nullable=False)
+    photo_file_id: Mapped[str | None] = mapped_column(String(255))
+    bonus_amount: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
+    bonus_valid_until: Mapped[date | None] = mapped_column(Date)
+    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    status: Mapped[CampaignStatus] = mapped_column(
+        Enum(CampaignStatus, name="campaign_status", values_callable=enum_values),
+        nullable=False,
+        default=CampaignStatus.SCHEDULED,
+    )
+    created_by_telegram_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    recipients_count: Mapped[int | None] = mapped_column(Integer)
+    launched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        CheckConstraint("bonus_amount >= 0", name="campaign_bonus_nonnegative"),
+        CheckConstraint(
+            "bonus_amount = 0 OR bonus_valid_until IS NOT NULL",
+            name="campaign_bonus_has_validity",
+        ),
+    )
+
+
 class BonusTransaction(Base, CreatedAtMixin):
-    """An append-only positive or negative loyalty-balance movement."""
+    """An append-only positive or negative loyalty-balance movement.
+
+    Every credit (accrual or promotion) is a lot with its own expiry instant; debits
+    (redemption or expiration) record which lots they consumed in ``BonusAllocation``.
+    """
 
     __tablename__ = "bonus_transactions"
 
@@ -281,11 +326,52 @@ class BonusTransaction(Base, CreatedAtMixin):
     )
     amount: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
     balance_after: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    campaign_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("promotion_campaigns.id", ondelete="RESTRICT")
+    )
 
     account: Mapped[LoyaltyAccount] = relationship(back_populates="transactions")
     purchase: Mapped[Purchase | None] = relationship(back_populates="bonus_transactions")
+    campaign: Mapped[PromotionCampaign | None] = relationship()
 
-    __table_args__ = (CheckConstraint("amount <> 0", name="bonus_transaction_nonzero"),)
+    __table_args__ = (
+        CheckConstraint("amount <> 0", name="bonus_transaction_nonzero"),
+        CheckConstraint(
+            "(amount > 0) = (expires_at IS NOT NULL)",
+            name="bonus_transaction_credit_expiry",
+        ),
+        Index(
+            "uq_bonus_transaction_campaign_account",
+            "campaign_id",
+            "account_id",
+            unique=True,
+            postgresql_where="campaign_id IS NOT NULL",
+        ),
+    )
+
+
+class BonusAllocation(Base, CreatedAtMixin):
+    """An append-only link recording how much of a credit lot a debit consumed."""
+
+    __tablename__ = "bonus_allocations"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    debit_transaction_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("bonus_transactions.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    credit_transaction_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("bonus_transactions.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    amount: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
+
+    __table_args__ = (CheckConstraint("amount > 0", name="bonus_allocation_positive"),)
 
 
 class LoyaltyCode(Base, CreatedAtMixin):
@@ -388,6 +474,8 @@ class NotificationOutbox(Base, CreatedAtMixin):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     chat_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
     body: Mapped[str] = mapped_column(Text, nullable=False)
+    photo_file_id: Mapped[str | None] = mapped_column(String(255))
+    dedupe_key: Mapped[str | None] = mapped_column(String(200), unique=True)
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     last_error: Mapped[str | None] = mapped_column(Text)

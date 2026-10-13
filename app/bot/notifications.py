@@ -8,6 +8,7 @@ import logging
 from datetime import UTC, datetime
 
 from aiogram import Bot
+from aiogram.exceptions import TelegramForbiddenError, TelegramRetryAfter
 from sqlalchemy import select
 
 from app.db.session import SessionLocal
@@ -15,10 +16,29 @@ from app.models import NotificationOutbox
 
 logger = logging.getLogger(__name__)
 
+MAX_DELIVERY_ATTEMPTS = 10
+BATCH_SIZE = 50
+IDLE_SECONDS = 10
+# Telegram allows roughly 30 messages per second; stay well below it during broadcasts.
+SEND_INTERVAL_SECONDS = 0.05
+
+
+async def deliver(bot: Bot, notification: NotificationOutbox) -> None:
+    """Send one queued notification as a photo with caption or as plain text."""
+    if notification.photo_file_id:
+        await bot.send_photo(
+            notification.chat_id,
+            photo=notification.photo_file_id,
+            caption=notification.body,
+        )
+    else:
+        await bot.send_message(notification.chat_id, notification.body)
+
 
 async def notification_delivery_loop(bot: Bot) -> None:
     """Deliver unsent notifications with bounded retries and row locks."""
     while True:
+        batch_size = 0
         try:
             async with SessionLocal() as session:
                 notifications = list(
@@ -27,17 +47,29 @@ async def notification_delivery_loop(bot: Bot) -> None:
                             select(NotificationOutbox)
                             .where(
                                 NotificationOutbox.sent_at.is_(None),
-                                NotificationOutbox.attempts < 10,
+                                NotificationOutbox.attempts < MAX_DELIVERY_ATTEMPTS,
                             )
                             .order_by(NotificationOutbox.created_at)
-                            .limit(50)
+                            .limit(BATCH_SIZE)
                             .with_for_update(skip_locked=True)
                         )
                     ).all()
                 )
+                batch_size = len(notifications)
                 for notification in notifications:
                     try:
-                        await bot.send_message(notification.chat_id, notification.body)
+                        await deliver(bot, notification)
+                    except TelegramRetryAfter as exc:
+                        # Flood control is not the recipient's fault: wait and keep the attempt.
+                        notification.last_error = str(exc)[:1000]
+                        logger.warning("Telegram flood control, retrying in %ss", exc.retry_after)
+                        await asyncio.sleep(exc.retry_after)
+                        break
+                    except TelegramForbiddenError as exc:
+                        # The customer blocked the bot; retrying cannot succeed.
+                        notification.attempts = MAX_DELIVERY_ATTEMPTS
+                        notification.last_error = str(exc)[:1000]
+                        logger.info("Notification %s recipient blocked the bot", notification.id)
                     except Exception as exc:
                         notification.attempts += 1
                         notification.last_error = str(exc)[:1000]
@@ -46,13 +78,17 @@ async def notification_delivery_loop(bot: Bot) -> None:
                         notification.sent_at = datetime.now(UTC)
                         notification.attempts += 1
                         notification.last_error = None
+                    await asyncio.sleep(SEND_INTERVAL_SECONDS)
                 if notifications:
                     await session.commit()
         except asyncio.CancelledError:
             raise
         except Exception:
             logger.exception("Notification outbox delivery loop failed")
-        await asyncio.sleep(10)
+            batch_size = 0
+        # A full batch means a broadcast is draining; continue without the idle pause.
+        if batch_size < BATCH_SIZE:
+            await asyncio.sleep(IDLE_SECONDS)
 
 
 async def stop_notification_task(task: asyncio.Task[None]) -> None:

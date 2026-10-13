@@ -2,22 +2,24 @@
 
 from __future__ import annotations
 
+import calendar
 import hashlib
 import hmac
 import secrets
 import uuid
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
 from typing import Protocol
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
 from app.models import (
+    BonusAllocation,
     BonusOperationType,
     BonusTransaction,
     CashbackSource,
@@ -117,6 +119,24 @@ class EffectiveCashback:
     source: CashbackSource
 
 
+@dataclass(frozen=True)
+class BonusLot:
+    """The unconsumed remainder of one credit (accrual or promotion) transaction."""
+
+    transaction_id: uuid.UUID
+    remaining: Decimal
+    expires_at: datetime
+    created_at: datetime
+
+
+@dataclass(frozen=True)
+class BonusExpiration:
+    """Bonuses whose last spendable Minsk calendar day is ``valid_until``."""
+
+    amount: Decimal
+    valid_until: date
+
+
 def money(value: Decimal | int | str, *, rounding: str = ROUND_HALF_UP) -> Decimal:
     """Normalize monetary values to Belarusian-ruble precision."""
     normalized = Decimal(str(value)).quantize(MONEY_QUANTUM, rounding=rounding)
@@ -188,6 +208,152 @@ def effective_cashback(
             source=CashbackSource.BIRTHDAY,
         )
     return EffectiveCashback(percent=tier_percent, source=CashbackSource.TIER)
+
+
+def add_months(value: date, months: int) -> date:
+    """Shift a date by calendar months, clamping to the last day of a shorter month."""
+    month_index = value.month - 1 + months
+    year = value.year + month_index // 12
+    month = month_index % 12 + 1
+    return date(year, month, min(value.day, calendar.monthrange(year, month)[1]))
+
+
+def expiry_instant(valid_until: date) -> datetime:
+    """Bonuses valid through ``valid_until`` (Minsk) expire at the following local midnight."""
+    next_day = datetime.combine(valid_until + timedelta(days=1), time.min, tzinfo=MINSK_TIMEZONE)
+    return next_day.astimezone(UTC)
+
+
+def valid_until(expires_at: datetime) -> date:
+    """Return the last Minsk calendar day on which a lot can still be spent."""
+    return (expires_at.astimezone(MINSK_TIMEZONE) - timedelta(microseconds=1)).date()
+
+
+def accrual_expires_at(accrued_at: datetime, *, lifetime_months: int) -> datetime:
+    """A credit stays spendable through the same Minsk calendar day ``lifetime_months`` later."""
+    accrual_day = accrued_at.astimezone(MINSK_TIMEZONE).date()
+    return expiry_instant(add_months(accrual_day, lifetime_months))
+
+
+def allocate_debit(lots: Sequence[BonusLot], amount: Decimal) -> list[tuple[uuid.UUID, Decimal]]:
+    """Consume the soonest-expiring lots first and return ``(credit id, portion)`` pairs."""
+    outstanding = money(amount)
+    allocations: list[tuple[uuid.UUID, Decimal]] = []
+    for lot in sorted(lots, key=lambda lot: (lot.expires_at, lot.created_at, lot.transaction_id)):
+        if outstanding <= 0:
+            break
+        portion = min(lot.remaining, outstanding)
+        if portion > 0:
+            allocations.append((lot.transaction_id, portion))
+            outstanding -= portion
+    if outstanding > 0:
+        raise LoyaltyError("Bonus lots do not cover the requested debit")
+    return allocations
+
+
+def usable_balance(current_balance: Decimal, lots: Sequence[BonusLot], now: datetime) -> Decimal:
+    """Exclude lots past expiry that the background sweep has not debited yet."""
+    overdue = sum((lot.remaining for lot in lots if lot.expires_at <= now), Decimal("0"))
+    return money(max(Decimal("0"), current_balance - overdue))
+
+
+def next_expiration(lots: Sequence[BonusLot], now: datetime) -> BonusExpiration | None:
+    """Return the spendable bonuses that will expire first, grouped by their last valid day."""
+    live = [lot for lot in lots if lot.expires_at > now]
+    if not live:
+        return None
+    first_day = min(valid_until(lot.expires_at) for lot in live)
+    amount = sum(
+        (lot.remaining for lot in live if valid_until(lot.expires_at) == first_day),
+        Decimal("0"),
+    )
+    return BonusExpiration(amount=money(amount), valid_until=first_day)
+
+
+async def open_bonus_lots(session: AsyncSession, account_id: uuid.UUID) -> list[BonusLot]:
+    """Load every credit lot of an account that still has an unconsumed remainder."""
+    remaining = BonusTransaction.amount - func.coalesce(func.sum(BonusAllocation.amount), 0)
+    rows = await session.execute(
+        select(
+            BonusTransaction.id,
+            remaining,
+            BonusTransaction.expires_at,
+            BonusTransaction.created_at,
+        )
+        .outerjoin(BonusAllocation, BonusAllocation.credit_transaction_id == BonusTransaction.id)
+        .where(BonusTransaction.account_id == account_id, BonusTransaction.amount > 0)
+        .group_by(BonusTransaction.id)
+        .having(remaining > 0)
+    )
+    lots = []
+    for transaction_id, lot_remaining, expires_at, created_at in rows:
+        if expires_at is None:
+            raise LoyaltyError("A bonus credit has no expiry date")
+        lots.append(
+            BonusLot(
+                transaction_id=transaction_id,
+                remaining=money(lot_remaining),
+                expires_at=expires_at,
+                created_at=created_at,
+            )
+        )
+    return lots
+
+
+async def record_debit(
+    session: AsyncSession,
+    *,
+    account: LoyaltyAccount,
+    lots: Sequence[BonusLot],
+    operation_type: BonusOperationType,
+    amount: Decimal,
+    purchase_id: uuid.UUID | None = None,
+) -> BonusTransaction:
+    """Append a debit and its lot allocations; the caller must hold the account row lock."""
+    debit_amount = money(amount)
+    allocations = allocate_debit(lots, debit_amount)
+    balance_after = money(account.current_balance - debit_amount)
+    debit = BonusTransaction(
+        id=uuid.uuid4(),
+        account_id=account.id,
+        purchase_id=purchase_id,
+        operation_type=operation_type,
+        amount=-debit_amount,
+        balance_after=balance_after,
+    )
+    session.add(debit)
+    # The allocation rows reference the debit, so it must reach the database first.
+    await session.flush()
+    session.add_all(
+        BonusAllocation(
+            debit_transaction_id=debit.id,
+            credit_transaction_id=credit_id,
+            amount=portion,
+        )
+        for credit_id, portion in allocations
+    )
+    account.current_balance = balance_after
+    return debit
+
+
+async def expire_overdue_lots(
+    session: AsyncSession,
+    account: LoyaltyAccount,
+    lots: Sequence[BonusLot],
+    now: datetime,
+) -> list[BonusLot]:
+    """Debit every lot past expiry in one ledger entry and return the still-spendable lots."""
+    overdue = [lot for lot in lots if lot.expires_at <= now]
+    total = money(sum((lot.remaining for lot in overdue), Decimal("0")))
+    if total > 0:
+        await record_debit(
+            session,
+            account=account,
+            lots=overdue,
+            operation_type=BonusOperationType.EXPIRATION,
+            amount=total,
+        )
+    return [lot for lot in lots if lot.expires_at > now]
 
 
 def code_digest(code: str, pepper: SecretValue) -> str:
@@ -293,6 +459,10 @@ class LoyaltyService:
             cashback = self._effective_cashback(tier, customer.birth_date, now)
             products = await self._selected_products(session, selected_products)
 
+            # Expired lots must never be spent, even if the background sweep has not run yet.
+            spendable_lots = await expire_overdue_lots(
+                session, account, await open_bonus_lots(session, account.id), now
+            )
             amounts = calculate_purchase_amounts(
                 current_balance=account.current_balance,
                 total_amount=total,
@@ -302,7 +472,9 @@ class LoyaltyService:
             cash_paid = amounts.cash_paid
             accrued = amounts.accrued
             balance_after = amounts.balance_after
-            balance_after_redemption = money(account.current_balance - redeemed)
+            accrual_expiry = accrual_expires_at(
+                now, lifetime_months=self._settings.bonus_lifetime_months
+            )
 
             purchase = Purchase(
                 customer_id=account.customer_id,
@@ -330,14 +502,13 @@ class LoyaltyService:
                 )
 
             if redeemed:
-                session.add(
-                    BonusTransaction(
-                        account_id=account.id,
-                        purchase_id=purchase.id,
-                        operation_type=BonusOperationType.REDEMPTION,
-                        amount=-redeemed,
-                        balance_after=balance_after_redemption,
-                    )
+                await record_debit(
+                    session,
+                    account=account,
+                    lots=spendable_lots,
+                    operation_type=BonusOperationType.REDEMPTION,
+                    amount=redeemed,
+                    purchase_id=purchase.id,
                 )
             if accrued:
                 session.add(
@@ -347,6 +518,7 @@ class LoyaltyService:
                         operation_type=BonusOperationType.ACCRUAL,
                         amount=accrued,
                         balance_after=balance_after,
+                        expires_at=accrual_expiry,
                     )
                 )
 
@@ -363,12 +535,19 @@ class LoyaltyService:
                 else ""
             )
 
+            validity_text = (
+                f" Начисленные бонусы действуют до "
+                f"{valid_until(accrual_expiry):%d.%m.%Y} включительно."
+                if accrued
+                else ""
+            )
+
             session.add(
                 NotificationOutbox(
                     chat_id=customer_telegram_id,
                     body=(
                         f"Вам начислено {accrued} бонусов{promotion_text}. "
-                        f"Текущий баланс: {balance_after} бонусов."
+                        f"Текущий баланс: {balance_after} бонусов.{validity_text}"
                     ),
                 )
             )
@@ -450,15 +629,37 @@ class LoyaltyService:
         customer, account = row
         tier = await self._current_tier(session, account.lifetime_turnover)
         cashback = self._effective_cashback(tier, customer.birth_date, now)
+        lots = await open_bonus_lots(session, account.id)
         return BuyerLookup(
             customer_name=customer.full_name,
             customer_phone=customer.phone,
             registered_at=customer.created_at,
-            current_balance=account.current_balance,
+            current_balance=usable_balance(account.current_balance, lots, now),
             cashback_percent=cashback.percent,
             cashback_source=cashback.source,
             tier_minimum_turnover=tier.minimum_turnover,
         )
+
+    async def expire_account_bonuses(
+        self,
+        session: AsyncSession,
+        account_id: uuid.UUID,
+        now: datetime,
+    ) -> None:
+        """Debit an account's overdue lots under the same row lock used by purchases."""
+        try:
+            account = await session.scalar(
+                select(LoyaltyAccount).where(LoyaltyAccount.id == account_id).with_for_update()
+            )
+            if account is None:
+                raise LoyaltyError("Loyalty account does not exist")
+            await expire_overdue_lots(
+                session, account, await open_bonus_lots(session, account.id), now
+            )
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
 
     def _effective_cashback(
         self,

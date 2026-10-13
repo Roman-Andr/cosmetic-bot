@@ -58,6 +58,12 @@ class Settings(BaseSettings):
         le=31,
         validation_alias="BIRTHDAY_CASHBACK_WINDOW_DAYS",
     )
+    bonus_lifetime_months: int = Field(
+        default=6,
+        ge=1,
+        le=60,
+        validation_alias="BONUS_LIFETIME_MONTHS",
+    )
 
     google_sheets_credentials_file: str | None = Field(
         default=None,

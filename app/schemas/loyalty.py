@@ -72,6 +72,14 @@ class BonusTransactionResponse(BaseModel):
     amount: Decimal
     balance_after: Decimal
     purchase_id: UUID | None
+    campaign_title: str | None = None
+
+
+class BonusExpirationResponse(BaseModel):
+    """The spendable bonuses that expire first and their last valid Minsk day."""
+
+    amount: Decimal
+    valid_until: date
 
 
 class ProfileResponse(BaseModel):
@@ -88,6 +96,8 @@ class ProfileResponse(BaseModel):
     birthday_cashback_active: bool
     birthday_cashback_percent: Decimal
     birthday_cashback_window_days: int
+    bonus_lifetime_months: int
+    next_expiration: BonusExpirationResponse | None
     is_owner: bool
     admin_role: AdminRole | None
     tier_progress: TierProgressResponse

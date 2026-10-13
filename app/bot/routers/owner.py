@@ -28,7 +28,8 @@ async def owner_panel(message: Message) -> None:
     await message.answer(
         "Панель главного администратора\n\n"
         "Команды: /stats, /find, /admins, /addsales, /tiers, "
-        "/exportcustomers, /exportpurchases",
+        "/exportcustomers, /exportpurchases\n"
+        "Акции и рассылки — в Mini App: «Управление» → «Акции».",
         reply_markup=owner_menu(settings.public_base_url),
     )
 

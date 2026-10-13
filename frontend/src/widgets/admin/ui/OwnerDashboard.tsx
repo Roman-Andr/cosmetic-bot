@@ -9,6 +9,7 @@ import {
   useCustomerSearchQuery,
 } from "../../../entities/admin/api/queries";
 import { AdministratorsModal } from "../../../features/administrator-management/ui/AdministratorsModal";
+import { CampaignsPanel } from "../../../features/campaigns/ui/CampaignsPanel";
 import { CustomerModal } from "../../../features/customer-management/ui/CustomerModal";
 import type { Tier } from "../../../entities/loyalty/model/types";
 import { download } from "../../../shared/api/client";
@@ -20,7 +21,7 @@ import { Icon } from "../../../shared/ui/Icon";
 import { CurrencySymbol, Money } from "../../../shared/ui/Money";
 import { ui } from "../../../shared/ui/classes";
 
-type OwnerSection = "overview" | "customers" | "settings";
+type OwnerSection = "overview" | "customers" | "campaigns" | "settings";
 
 export function OwnerDashboard({ onNotice }: { onNotice: NoticeHandler }) {
   const [tiers, setTiers] = useState<Tier[]>([]);
@@ -75,10 +76,11 @@ export function OwnerDashboard({ onNotice }: { onNotice: NoticeHandler }) {
   if (statsQuery.isPending || tiersQuery.isPending) return <section className={ui("owner-loading")}><span className={ui("loader")} />Загружаем управление…</section>;
 
   return <section className={ui("owner-workspace")}>
-    <header className={ui("workspace-heading")}><p className={ui("eyebrow")}>УПРАВЛЕНИЕ ПРОГРАММОЙ</p><h1>Центр лояльности</h1><p>Главные показатели, база клиентов и правила — в отдельных рабочих разделах.</p></header>
+    <header className={ui("workspace-heading")}><p className={ui("eyebrow")}>УПРАВЛЕНИЕ ПРОГРАММОЙ</p><h1>Центр лояльности</h1><p>Главные показатели, база клиентов, акции и правила — в отдельных рабочих разделах.</p></header>
     <nav className={ui("owner-tabs")} aria-label="Разделы управления">
       <OwnerTab active={section === "overview"} icon="chart" label="Обзор" onClick={() => setSection("overview")} />
       <OwnerTab active={section === "customers"} icon="search" label="Клиенты" onClick={() => setSection("customers")} />
+      <OwnerTab active={section === "campaigns"} icon="sparkle" label="Акции" onClick={() => setSection("campaigns")} />
       <OwnerTab active={section === "settings"} icon="gift" label="Настройки" onClick={() => setSection("settings")} />
     </nav>
 
@@ -99,6 +101,8 @@ export function OwnerDashboard({ onNotice }: { onNotice: NoticeHandler }) {
       {hasSearched && !customersQuery.isFetching && customers.length === 0 && <div className={ui("search-empty")}><Icon name="search" /><strong>Клиенты не найдены</strong><span>Проверьте запрос и попробуйте ещё раз.</span></div>}
     </section>}
 
+    {section === "campaigns" && <CampaignsPanel onNotice={onNotice} />}
+
     {section === "settings" && <section className={ui("owner-view", "owner-card")}>
       <div className={ui("view-heading")}><div><p className={ui("overline")} data-overline>ПРАВИЛА ЛОЯЛЬНОСТИ</p><h2>Уровни кешбэка</h2><p>Изменения применятся к следующим покупкам.</p></div><span className={ui("soft-icon")}><Icon name="gift" /></span></div>
       <div className={ui("tier-editor")}>{tiers.map((tier, index) => <section className={ui("tier-config-card")} key={tier.id ?? index}>
@@ -117,6 +121,6 @@ export function OwnerDashboard({ onNotice }: { onNotice: NoticeHandler }) {
   </section>;
 }
 
-function OwnerTab({ active, icon, label, onClick }: { active: boolean; icon: "chart" | "search" | "gift"; label: string; onClick: () => void }) {
+function OwnerTab({ active, icon, label, onClick }: { active: boolean; icon: "chart" | "search" | "sparkle" | "gift"; label: string; onClick: () => void }) {
   return <button type="button" aria-pressed={active} onClick={onClick}><Icon name={icon} size={17} /><span>{label}</span></button>;
 }
