@@ -21,6 +21,7 @@ from app.bot.notifications import notification_delivery_loop
 from app.core.config import get_settings
 from app.db.redis import get_redis_client
 from app.db.session import SessionLocal, engine
+from app.services.backup_delivery import backup_delivery_loop
 from app.services.bootstrap import seed_defaults
 from app.services.catalog import CatalogService, CatalogSyncError
 from app.services.monitoring import health_monitor_loop
@@ -60,6 +61,9 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         asyncio.create_task(run_telegram(bot, dispatcher, settings), name="telegram-runtime"),
         asyncio.create_task(notification_delivery_loop(bot), name="notification-outbox"),
         asyncio.create_task(health_monitor_loop(bot, settings), name="health-monitor"),
+        asyncio.create_task(
+            backup_delivery_loop(bot, get_redis_client(), settings), name="backup-delivery"
+        ),
     ]
     try:
         yield
