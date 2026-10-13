@@ -23,6 +23,15 @@ function tierTitle(index: number, total: number): string {
   return `Уровень ${index + 1}`;
 }
 
+function monthsLabel(count: number): string {
+  const lastTwo = count % 100;
+  const last = count % 10;
+  if (lastTwo >= 11 && lastTwo <= 14) return "месяцев";
+  if (last === 1) return "месяц";
+  if (last >= 2 && last <= 4) return "месяца";
+  return "месяцев";
+}
+
 export function LoyaltyProgramModal({ profile, onClose }: { profile: Profile; onClose: () => void }) {
   const progress = profile.tier_progress;
   const turnover = Number(profile.lifetime_turnover);
@@ -62,6 +71,14 @@ export function LoyaltyProgramModal({ profile, onClose }: { profile: Profile; on
           </div>}
         </li>;
       })}</ul>
+    </section>
+    <section className={ui("program-rules")}>
+      <h3>Как работают бонусы</h3>
+      <ul>
+        <li><Icon name="sale" size={17} /><span>Бонусами можно оплатить до 10% покупки.</span></li>
+        <li><Icon name="clock" size={17} /><span>Каждое начисление действует {profile.bonus_lifetime_months} {monthsLabel(profile.bonus_lifetime_months)} — до того же числа включительно, потом сгорает. Подарочные бонусы действуют до даты, указанной в акции.</span></li>
+        <li><Icon name="check" size={17} /><span>При покупке сначала списываются бонусы, которые сгорят раньше.</span></li>
+      </ul>
     </section>
   </Modal>;
 }

@@ -5,6 +5,10 @@ import { loyaltyKeys } from "../../loyalty/api/queryKeys";
 import type { Tier } from "../../loyalty/model/types";
 import type {
   Administrator,
+  Campaign,
+  CampaignInput,
+  CampaignPhoto,
+  CampaignPreview,
   SaleInput,
   SalePreview,
   SalePreviewInput,
@@ -54,5 +58,35 @@ export function useRecordSaleMutation() {
         queryClient.invalidateQueries({ queryKey: adminKeys.customers }),
       ]);
     },
+  });
+}
+
+export function useCampaignPreviewMutation() {
+  return useMutation({
+    mutationFn: (payload: CampaignInput) =>
+      api.post<CampaignPreview>("/admin/campaigns/preview", payload),
+  });
+}
+
+export function useCreateCampaignMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: CampaignInput) => api.post<Campaign>("/admin/campaigns", payload),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: adminKeys.campaigns }),
+  });
+}
+
+export function useCancelCampaignMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (campaignId: string) => api.post<Campaign>(`/admin/campaigns/${campaignId}/cancel`),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: adminKeys.campaigns }),
+  });
+}
+
+export function useUploadCampaignPhotoMutation() {
+  return useMutation({
+    mutationFn: (imageBase64: string) =>
+      api.post<CampaignPhoto>("/admin/campaigns/photo", { image_base64: imageBase64 }),
   });
 }

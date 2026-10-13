@@ -21,8 +21,15 @@ export interface Profile {
   birthday_cashback_active: boolean;
   birthday_cashback_percent: string;
   birthday_cashback_window_days: number;
+  bonus_lifetime_months: number;
+  next_expiration: BonusExpiration | null;
   is_owner: boolean;
   admin_role: AdminRole | null;
+}
+
+export interface BonusExpiration {
+  amount: string;
+  valid_until: string;
 }
 
 export interface TierProgress {
@@ -48,13 +55,16 @@ export interface PurchasePage {
   next_offset: number | null;
 }
 
+export type BonusOperationType = "accrual" | "redemption" | "expiration" | "promotion";
+
 export interface BonusTransaction {
   id: string;
   created_at: string;
-  operation_type: "accrual" | "redemption";
+  operation_type: BonusOperationType;
   amount: string;
   balance_after: string;
   purchase_id: string | null;
+  campaign_title: string | null;
 }
 
 export interface BonusTransactionPage {

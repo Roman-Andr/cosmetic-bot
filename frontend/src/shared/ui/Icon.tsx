@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 export type IconName =
   | "account" | "bag" | "chart" | "gift" | "shield" | "code" | "sale"
   | "search" | "close" | "check" | "plus" | "arrow" | "back" | "download" | "sparkle" | "copy" | "lock"
-  | "sun" | "moon" | "contrast";
+  | "sun" | "moon" | "contrast" | "clock" | "image";
 
 export function Icon({ name, size = 21 }: { name: IconName; size?: number }) {
   const paths: Record<IconName, ReactNode> = {
@@ -27,6 +27,8 @@ export function Icon({ name, size = 21 }: { name: IconName; size?: number }) {
     sun: <><circle cx="12" cy="12" r="4" /><path d="M12 3v2m0 14v2M3 12h2m14 0h2M5.6 5.6 7 7m10 10 1.4 1.4M18.4 5.6 17 7M7 17l-1.4 1.4" /></>,
     moon: <path d="M20 14.3A8.2 8.2 0 0 1 9.7 4a8.5 8.5 0 1 0 10.3 10.3Z" />,
     contrast: <><circle cx="12" cy="12" r="8.2" /><path d="M12 3.8a8.2 8.2 0 0 1 0 16.4Z" fill="currentColor" stroke="none" /></>,
+    clock: <><circle cx="12" cy="12" r="8.2" /><path d="M12 7.5V12l3 2" /></>,
+    image: <><rect x="4" y="5" width="16" height="14" rx="2.5" /><circle cx="9" cy="10" r="1.6" /><path d="m5 17 4.5-4.5 3 3 2-2L19 18" /></>,
   };
   return <svg className={ui("icon")} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>;
 }

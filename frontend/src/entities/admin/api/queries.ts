@@ -6,6 +6,7 @@ import type {
   Administrator,
   AdminAccess,
   BuyerLookup,
+  CampaignList,
   CustomerDetail,
   CustomerSearchResult,
   Stats,
@@ -81,5 +82,13 @@ export function useBuyerQuery(buyerCode: string) {
     gcTime: 0,
     refetchOnMount: "always",
     staleTime: 0,
+  });
+}
+
+export function useCampaignsQuery() {
+  return useQuery({
+    queryKey: adminKeys.campaigns,
+    queryFn: () => api.get<CampaignList>("/admin/campaigns"),
+    staleTime: 30 * 1000,
   });
 }

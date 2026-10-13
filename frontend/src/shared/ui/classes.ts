@@ -97,7 +97,7 @@ const styles = {
 
   "owner-loading": "grid min-h-[180px] place-items-center gap-[11px] text-body text-muted",
   "modal-loader": "grid min-h-[180px] place-items-center gap-[11px] text-body text-muted",
-  "owner-tabs": "grid grid-cols-3 gap-[5px] rounded-[18px] bg-surface p-[5px] [&_button]:inline-flex [&_button]:min-h-[58px] [&_button]:min-w-0 [&_button]:flex-col [&_button]:items-center [&_button]:justify-center [&_button]:gap-[3px] [&_button]:rounded-control [&_button]:bg-transparent [&_button]:px-[5px] [&_button]:py-[7px] [&_button]:text-caption [&_button]:font-bold [&_button]:text-muted [&_button]:transition-colors [&_button[aria-pressed=true]]:bg-brand [&_button[aria-pressed=true]]:text-on-brand",
+  "owner-tabs": "grid grid-cols-4 gap-[5px] rounded-[18px] bg-surface p-[5px] [&_button]:inline-flex [&_button]:min-h-[58px] [&_button]:min-w-0 [&_button]:flex-col [&_button]:items-center [&_button]:justify-center [&_button]:gap-[3px] [&_button]:rounded-control [&_button]:bg-transparent [&_button]:px-[5px] [&_button]:py-[7px] [&_button]:text-caption [&_button]:font-bold [&_button]:text-muted [&_button]:transition-colors [&_button[aria-pressed=true]]:bg-brand [&_button[aria-pressed=true]]:text-on-brand",
   "owner-view": "grid gap-[13px]",
   "metrics-board": "grid grid-cols-2 gap-2 [&>div]:grid [&>div]:min-h-[122px] [&>div]:grid-cols-[auto_1fr] [&>div]:content-between [&>div]:items-center [&>div]:gap-2 [&>div]:rounded-[19px] [&>div]:border [&>div]:border-line [&>div]:bg-surface [&>div]:p-[15px] [&_small]:self-center [&_small]:text-caption [&_small]:text-muted [&_strong]:col-span-full [&_strong]:overflow-hidden [&_strong]:text-ellipsis [&_strong]:whitespace-nowrap [&_strong]:text-title [&_strong]:font-black [&_strong]:tracking-[-.04em] [&_strong]:text-ink",
   "metric-icon": "grid size-[35px] place-items-center rounded-[11px] bg-brand-soft text-accent",
@@ -196,6 +196,31 @@ const styles = {
   "role-dot-sales": "size-2 rounded-full bg-positive",
   "empty-state": "grid justify-items-center px-3 pt-[30px] pb-4 text-center text-muted [&>span]:mb-[9px] [&>span]:grid [&>span]:size-[47px] [&>span]:place-items-center [&>span]:rounded-xl [&>span]:bg-brand-soft [&>span]:text-accent [&_h3]:mb-[5px] [&_h3]:text-body [&_h3]:text-ink-soft [&_p]:m-0 [&_p]:max-w-[250px] [&_p]:text-small [&_p]:leading-[1.45]",
   "compact-empty": "pt-2.5",
+
+  "points-expiry": "flex min-w-0 items-start gap-1 font-semibold leading-[1.3]! text-on-tile/70 [&>svg]:mt-px [&>svg]:shrink-0",
+  "expiry-note": "-mt-3 mb-5 flex items-start gap-2.5 rounded-control bg-surface-soft px-3.5 py-3 text-small leading-[1.45] text-ink-soft [&>svg]:mt-px [&>svg]:shrink-0 [&>svg]:text-accent [&_b]:font-bold",
+  "program-rules": "mt-5 grid gap-2.5 rounded-[18px] border border-line bg-surface-soft p-4 [&_h3]:m-0 [&_h3]:text-body [&_h3]:font-bold [&_h3]:text-ink [&_ul]:m-0 [&_ul]:grid [&_ul]:list-none [&_ul]:gap-2 [&_ul]:p-0 [&_li]:grid [&_li]:grid-cols-[17px_minmax(0,1fr)] [&_li]:items-start [&_li]:gap-2 [&_li]:text-small [&_li]:leading-[1.45] [&_li]:text-muted [&_li>svg]:mt-0.5 [&_li>svg]:text-accent",
+
+  "campaign-list": "m-0 grid list-none gap-2.5 p-0",
+  "campaign-card": "grid gap-3 rounded-[18px] border border-line bg-well p-4 [&>header]:flex [&>header]:items-start [&>header]:justify-between [&>header]:gap-2.5 [&_h3]:m-0 [&_h3]:min-w-0 [&_h3]:text-body [&_h3]:font-bold [&_h3]:leading-[1.25] [&_h3]:text-ink [&_h3]:break-words",
+  "campaign-status": "shrink-0 rounded-full px-2.5 py-1 text-caption font-bold leading-none",
+  "campaign-status-scheduled": "bg-brand-soft text-accent-strong",
+  "campaign-status-completed": "bg-positive-soft text-positive",
+  "campaign-status-cancelled": "bg-chip text-muted",
+  "campaign-meta": "m-0 grid list-none gap-1.5 p-0 [&_li]:flex [&_li]:items-center [&_li]:gap-2 [&_li]:text-small [&_li]:leading-[1.35] [&_li]:text-muted [&_li>svg]:shrink-0 [&_li>svg]:text-accent",
+  // The clamp lives on the inner paragraph so the fifth line never shows through the padding.
+  "campaign-message": "rounded-control bg-surface p-3 text-small leading-[1.45] text-ink-soft [&>p]:m-0 [&>p]:line-clamp-4 [&>p]:whitespace-pre-line [&>p]:break-words",
+  "campaign-message-full": "m-0 whitespace-pre-line break-words rounded-control bg-surface-soft p-3.5 text-small leading-[1.5] text-ink-soft",
+  "campaign-preview": "mb-3.5 grid gap-2.5 [&_img]:block [&_img]:max-h-[260px] [&_img]:w-full [&_img]:rounded-control [&_img]:object-cover",
+  "segmented": "grid grid-cols-2 gap-[5px] rounded-[15px] bg-surface-soft p-[5px] [&_button]:min-h-[46px] [&_button]:rounded-control [&_button]:bg-transparent [&_button]:text-small [&_button]:font-bold [&_button]:text-muted [&_button]:transition-colors [&_button[aria-pressed=true]]:bg-brand [&_button[aria-pressed=true]]:text-on-brand",
+  "field-hint": "text-caption font-medium leading-[1.4] text-muted",
+  "field-error": "text-caption font-semibold leading-[1.4] text-danger",
+  "form-textarea": "min-h-[150px] resize-y leading-[1.45]",
+  "field-group": "grid gap-2 [&>span:first-child]:text-small [&>span:first-child]:font-bold [&>span:first-child]:text-ink-soft",
+  "visually-hidden": "sr-only",
+  // The form styles every label as a grid; this label is a button, so it overrides them.
+  "photo-picker-button": "flex! min-h-[50px] w-full cursor-pointer items-center justify-center gap-2! rounded-control bg-brand-soft px-4 text-small font-bold text-accent-strong transition-colors hover:bg-surface-tint",
+  "photo-preview": "relative overflow-hidden rounded-control border border-line [&_img]:block [&_img]:max-h-[220px] [&_img]:w-full [&_img]:object-cover [&>button]:absolute [&>button]:right-2 [&>button]:top-2 [&>span]:absolute [&>span]:inset-0 [&>span]:grid [&>span]:place-items-center [&>span]:bg-canvas/70",
 } as const;
 
 export type UiClass = keyof typeof styles;
