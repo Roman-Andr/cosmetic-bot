@@ -21,6 +21,7 @@ from app.bot.notifications import notification_delivery_loop
 from app.core.config import get_settings
 from app.db.redis import get_redis_client
 from app.db.session import SessionLocal, engine
+from app.services.automation import loyalty_automation_loop
 from app.services.bootstrap import seed_defaults
 from app.services.catalog import CatalogService, CatalogSyncError
 from app.services.monitoring import health_monitor_loop
@@ -60,6 +61,9 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         asyncio.create_task(run_telegram(bot, dispatcher, settings), name="telegram-runtime"),
         asyncio.create_task(notification_delivery_loop(bot), name="notification-outbox"),
         asyncio.create_task(health_monitor_loop(bot, settings), name="health-monitor"),
+        asyncio.create_task(
+            loyalty_automation_loop(settings, SessionLocal), name="loyalty-automation"
+        ),
     ]
     try:
         yield
@@ -82,6 +86,8 @@ app = FastAPI(
     openapi_url="/api/openapi.json" if settings.app_env != "production" else None,
     lifespan=lifespan,
 )
+# Routes that talk to Telegram (campaign photo uploads) reuse the single shared client.
+app.state.bot = bot
 app.include_router(health.router, prefix="/api")
 app.include_router(loyalty.router, prefix="/api")
 app.include_router(admin.router, prefix="/api")

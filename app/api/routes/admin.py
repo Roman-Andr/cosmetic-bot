@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, date, datetime, time
 from decimal import Decimal
 from uuid import UUID
 
+from aiogram.types import BufferedInputFile
 from fastapi import APIRouter, HTTPException, Query, Response, status
 from sqlalchemy import func, or_, select
 
 from app.api.dependencies import (
+    BotDependency,
     OwnerDependency,
     SalesAdminDependency,
     SessionDependency,
@@ -22,6 +25,7 @@ from app.models import (
     Customer,
     LoyaltyAccount,
     Product,
+    PromotionCampaign,
     Purchase,
 )
 from app.schemas.admin import (
@@ -30,6 +34,12 @@ from app.schemas.admin import (
     AdminStatsResponse,
     AdminUserResponse,
     BuyerLookupResponse,
+    CampaignCreateRequest,
+    CampaignListResponse,
+    CampaignPhotoUploadRequest,
+    CampaignPhotoUploadResponse,
+    CampaignPreviewResponse,
+    CampaignResponse,
     CustomerDetailResponse,
     CustomerSearchResponse,
     ProductResponse,
@@ -41,6 +51,18 @@ from app.schemas.admin import (
     TierRulesUpdateRequest,
 )
 from app.schemas.loyalty import PurchasePageResponse, PurchaseSummaryResponse
+from app.services.campaigns import (
+    CampaignDraft,
+    CampaignError,
+    CampaignNotFoundError,
+    audience_size,
+    campaign_message,
+    cancel_campaign,
+    create_campaign,
+    decode_campaign_photo,
+    list_campaigns,
+    validate_campaign,
+)
 from app.services.customer_data import mask_phone
 from app.services.customer_search import search_customer_accounts
 from app.services.loyalty import (
@@ -49,11 +71,13 @@ from app.services.loyalty import (
     LoyaltyService,
     ProductNotFoundError,
     ProductSelection,
+    money,
 )
 from app.services.reports import customer_report, purchase_report
 from app.services.tier_rules import TierRuleValue, list_active_tiers, replace_active_tiers
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+logger = logging.getLogger(__name__)
 
 
 def as_utc_boundary(value: date | None, *, end: bool) -> datetime | None:
@@ -473,3 +497,147 @@ async def export_purchases(
         await purchase_report(session, date_from=start, date_to=end),
         "purchases.xlsx",
     )
+
+
+def campaign_response(campaign: PromotionCampaign) -> CampaignResponse:
+    """Hide Telegram's internal file identifier from the dashboard payload."""
+    return CampaignResponse(
+        id=campaign.id,
+        title=campaign.title,
+        message_text=campaign_message(
+            campaign.message_text, campaign.bonus_amount, campaign.bonus_valid_until
+        ),
+        has_photo=campaign.photo_file_id is not None,
+        bonus_amount=campaign.bonus_amount,
+        bonus_valid_until=campaign.bonus_valid_until,
+        starts_at=campaign.starts_at,
+        status=campaign.status,
+        recipients_count=campaign.recipients_count,
+        launched_at=campaign.launched_at,
+        cancelled_at=campaign.cancelled_at,
+        created_at=campaign.created_at,
+    )
+
+
+def campaign_draft(payload: CampaignCreateRequest) -> CampaignDraft:
+    """Translate the API contract into the service-level draft."""
+    return CampaignDraft(
+        title=payload.title,
+        message_text=payload.message_text,
+        photo_file_id=payload.photo_file_id,
+        bonus_amount=payload.bonus_amount,
+        bonus_valid_until=payload.bonus_valid_until,
+        starts_at=payload.starts_at,
+    )
+
+
+@router.get("/campaigns", response_model=CampaignListResponse)
+async def get_campaigns(session: SessionDependency, _: OwnerDependency) -> CampaignListResponse:
+    """List recent campaigns with the audience a new campaign would reach."""
+    return CampaignListResponse(
+        audience_size=await audience_size(session),
+        items=[campaign_response(campaign) for campaign in await list_campaigns(session)],
+    )
+
+
+@router.post("/campaigns/preview", response_model=CampaignPreviewResponse)
+async def preview_campaign(
+    payload: CampaignCreateRequest,
+    session: SessionDependency,
+    _: OwnerDependency,
+) -> CampaignPreviewResponse:
+    """Validate a draft and show the exact customer message before the irreversible launch."""
+    draft = campaign_draft(payload)
+    try:
+        validate_campaign(draft, datetime.now(UTC))
+    except CampaignError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
+    recipients = await audience_size(session)
+    return CampaignPreviewResponse(
+        message_text=campaign_message(
+            draft.message_text, draft.bonus_amount, draft.bonus_valid_until
+        ),
+        audience_size=recipients,
+        total_bonus=money(draft.bonus_amount * recipients),
+    )
+
+
+@router.post(
+    "/campaigns",
+    response_model=CampaignResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def schedule_campaign(
+    payload: CampaignCreateRequest,
+    session: SessionDependency,
+    owner: OwnerDependency,
+) -> CampaignResponse:
+    """Schedule a campaign; the automation loop launches it once its start time arrives."""
+    try:
+        campaign = await create_campaign(
+            session,
+            campaign_draft(payload),
+            actor_telegram_id=owner.telegram_user_id,
+            now=datetime.now(UTC),
+        )
+    except CampaignError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
+    return campaign_response(campaign)
+
+
+@router.post("/campaigns/{campaign_id}/cancel", response_model=CampaignResponse)
+async def cancel_scheduled_campaign(
+    campaign_id: UUID,
+    session: SessionDependency,
+    owner: OwnerDependency,
+) -> CampaignResponse:
+    """Cancel a campaign before launch; launched gifts stay in the immutable ledger."""
+    try:
+        campaign = await cancel_campaign(
+            session,
+            campaign_id,
+            actor_telegram_id=owner.telegram_user_id,
+            now=datetime.now(UTC),
+        )
+    except CampaignNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except CampaignError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    return campaign_response(campaign)
+
+
+@router.post("/campaigns/photo", response_model=CampaignPhotoUploadResponse)
+async def upload_campaign_photo(
+    payload: CampaignPhotoUploadRequest,
+    bot: BotDependency,
+    owner: OwnerDependency,
+) -> CampaignPhotoUploadResponse:
+    """Upload the picture to Telegram once, via the owner's chat, and reuse its file id."""
+    try:
+        image = decode_campaign_photo(payload.image_base64)
+    except CampaignError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
+    try:
+        message = await bot.send_photo(
+            owner.telegram_user_id,
+            photo=BufferedInputFile(image, filename="campaign.jpg"),
+            caption="Картинка для акции загружена. Так она будет выглядеть в рассылке.",
+        )
+    except Exception as exc:
+        logger.warning("Campaign photo upload to Telegram failed: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Telegram не принял картинку. Попробуйте ещё раз или выберите другую.",
+        ) from exc
+    if not message.photo:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Telegram не вернул загруженную картинку.",
+        )
+    return CampaignPhotoUploadResponse(photo_file_id=message.photo[-1].file_id)
