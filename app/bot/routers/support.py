@@ -166,8 +166,15 @@ async def unblock_support_user(callback: CallbackQuery) -> None:
 
 @router.message(F.reply_to_message)
 async def owner_reply_to_support(message: Message, bot: Bot) -> None:
-    """Route an owner reply by persistent forwarded-message mapping."""
+    """Route an owner reply by persistent forwarded-message mapping.
+
+    Customer messages are only ever copied into the main owner's chat, and Telegram message
+    ids are per chat, so a reply in any other chat (e.g. a second owner's) must never be
+    matched against the forward mapping or it could reach an unrelated customer.
+    """
     if message.from_user is None or message.reply_to_message is None:
+        return
+    if message.chat.id != settings.owner_telegram_id:
         return
     if await get_admin_role(message.from_user.id) is not AdminRole.OWNER:
         return
