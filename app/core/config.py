@@ -43,6 +43,7 @@ class Settings(BaseSettings):
     disk_alert_percent: int = Field(default=85, ge=1, le=100, validation_alias="DISK_ALERT_PERCENT")
     backup_max_age_hours: int = Field(default=26, ge=1, validation_alias="BACKUP_MAX_AGE_HOURS")
     backup_dir: str = Field(default="/backups", validation_alias="BACKUP_DIR")
+    backup_telegram_id: int | None = Field(default=None, validation_alias="BACKUP_TELEGRAM_ID")
     fsm_ttl_seconds: int = Field(default=259200, ge=0, validation_alias="FSM_TTL_SECONDS")
 
     birthday_cashback_percent: Decimal = Field(
