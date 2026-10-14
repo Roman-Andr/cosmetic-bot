@@ -96,6 +96,10 @@ export interface CampaignInput {
   starts_at: string;
 }
 
+export interface CampaignUpdateInput extends CampaignInput {
+  keep_photo: boolean;
+}
+
 export interface CampaignPreview {
   message_text: string;
   audience_size: number;
@@ -106,15 +110,21 @@ export interface Campaign {
   id: string;
   title: string;
   message_text: string;
+  owner_text: string;
   has_photo: boolean;
   bonus_amount: string;
   bonus_valid_until: string | null;
   starts_at: string;
   status: CampaignStatus;
   recipients_count: number | null;
+  late_recipients_count: number;
   launched_at: string | null;
   cancelled_at: string | null;
   created_at: string;
+}
+
+export interface CampaignLateDelivery {
+  recipients: number;
 }
 
 export interface CampaignList {
