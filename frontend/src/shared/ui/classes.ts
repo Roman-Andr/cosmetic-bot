@@ -220,6 +220,7 @@ const styles = {
   "visually-hidden": "sr-only",
   // The form styles every label as a grid; this label is a button, so it overrides them.
   "photo-picker-button": "flex! min-h-[50px] w-full cursor-pointer items-center justify-center gap-2! rounded-control bg-brand-soft px-4 text-small font-bold text-accent-strong transition-colors hover:bg-surface-tint",
+  "photo-kept": "flex min-h-[50px] items-center gap-2.5 rounded-control border border-line bg-surface-soft py-1.5 pl-3.5 pr-1.5 text-small font-semibold text-ink-soft [&>svg]:shrink-0 [&>svg]:text-accent [&>span]:min-w-0 [&>span]:flex-1",
   "photo-preview": "relative overflow-hidden rounded-control border border-line [&_img]:block [&_img]:max-h-[220px] [&_img]:w-full [&_img]:object-cover [&>button]:absolute [&>button]:right-2 [&>button]:top-2 [&>span]:absolute [&>span]:inset-0 [&>span]:grid [&>span]:place-items-center [&>span]:bg-canvas/70",
 } as const;
 

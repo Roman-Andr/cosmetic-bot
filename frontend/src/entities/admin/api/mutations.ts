@@ -7,8 +7,10 @@ import type {
   Administrator,
   Campaign,
   CampaignInput,
+  CampaignLateDelivery,
   CampaignPhoto,
   CampaignPreview,
+  CampaignUpdateInput,
   SaleInput,
   SalePreview,
   SalePreviewInput,
@@ -68,10 +70,35 @@ export function useCampaignPreviewMutation() {
   });
 }
 
+export function useCampaignUpdatePreviewMutation() {
+  return useMutation({
+    mutationFn: ({ campaignId, payload }: { campaignId: string; payload: CampaignUpdateInput }) =>
+      api.post<CampaignPreview>(`/admin/campaigns/${campaignId}/preview`, payload),
+  });
+}
+
 export function useCreateCampaignMutation() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (payload: CampaignInput) => api.post<Campaign>("/admin/campaigns", payload),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: adminKeys.campaigns }),
+  });
+}
+
+export function useUpdateCampaignMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ campaignId, payload }: { campaignId: string; payload: CampaignUpdateInput }) =>
+      api.put<Campaign>(`/admin/campaigns/${campaignId}`, payload),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: adminKeys.campaigns }),
+  });
+}
+
+export function useSendCampaignToLateRecipientsMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (campaignId: string) =>
+      api.post<CampaignLateDelivery>(`/admin/campaigns/${campaignId}/late-recipients`),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: adminKeys.campaigns }),
   });
 }

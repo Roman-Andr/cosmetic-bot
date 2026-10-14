@@ -5,11 +5,12 @@ from __future__ import annotations
 import base64
 import binascii
 import uuid
-from dataclasses import dataclass
+from collections.abc import Sequence
+from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import Row, Select, exists, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import (
@@ -40,6 +41,10 @@ class CampaignError(Exception):
 
 class CampaignNotFoundError(CampaignError):
     """The requested campaign does not exist."""
+
+
+class CampaignStateError(CampaignError):
+    """The campaign has already launched or been cancelled, so it can no longer change."""
 
 
 @dataclass(frozen=True)
@@ -170,6 +175,83 @@ async def create_campaign(
     return campaign
 
 
+def _audit_snapshot(campaign: PromotionCampaign) -> dict[str, str | bool | None]:
+    """The owner-editable fields of a campaign, in a JSON-friendly form."""
+    return {
+        "title": campaign.title,
+        "message_text": campaign.message_text,
+        "has_photo": campaign.photo_file_id is not None,
+        "bonus_amount": str(campaign.bonus_amount),
+        "bonus_valid_until": (
+            campaign.bonus_valid_until.isoformat() if campaign.bonus_valid_until else None
+        ),
+        "starts_at": campaign.starts_at.isoformat(),
+    }
+
+
+async def edited_campaign_draft(
+    session: AsyncSession,
+    campaign_id: uuid.UUID,
+    draft: CampaignDraft,
+    *,
+    keep_photo: bool,
+    lock: bool = False,
+) -> tuple[PromotionCampaign, CampaignDraft]:
+    """Load a still-scheduled campaign and resolve ``keep_photo`` to its stored picture."""
+    query = select(PromotionCampaign).where(PromotionCampaign.id == campaign_id)
+    campaign = await session.scalar(query.with_for_update() if lock else query)
+    if campaign is None:
+        raise CampaignNotFoundError("Акция не найдена")
+    if campaign.status is not CampaignStatus.SCHEDULED:
+        raise CampaignStateError("Акция уже стартовала или отменена — изменить её нельзя")
+    if keep_photo:
+        draft = replace(draft, photo_file_id=campaign.photo_file_id)
+    return campaign, draft
+
+
+async def update_campaign(
+    session: AsyncSession,
+    campaign_id: uuid.UUID,
+    draft: CampaignDraft,
+    *,
+    keep_photo: bool,
+    actor_telegram_id: int,
+    now: datetime,
+) -> PromotionCampaign:
+    """Replace every owner field of a campaign that has not launched yet.
+
+    The row lock serialises the edit with ``dispatch_due_campaigns``: the launcher skips a
+    locked campaign until the next tick, and an edit that waited for a launch sees it completed.
+    """
+    try:
+        campaign, draft = await edited_campaign_draft(
+            session, campaign_id, draft, keep_photo=keep_photo, lock=True
+        )
+        validate_campaign(draft, now)
+        before = _audit_snapshot(campaign)
+        has_bonus = draft.bonus_amount > 0
+        campaign.title = draft.title.strip()
+        campaign.message_text = draft.message_text.strip()
+        campaign.photo_file_id = draft.photo_file_id
+        campaign.bonus_amount = money(draft.bonus_amount)
+        campaign.bonus_valid_until = draft.bonus_valid_until if has_bonus else None
+        campaign.starts_at = draft.starts_at
+        session.add(
+            AuditEvent(
+                actor_telegram_id=actor_telegram_id,
+                event_type="promotion_campaign_updated",
+                target_type="promotion_campaigns",
+                target_id=str(campaign.id),
+                payload={"before": before, "after": _audit_snapshot(campaign)},
+            )
+        )
+        await session.commit()
+    except Exception:
+        await session.rollback()
+        raise
+    return campaign
+
+
 async def cancel_campaign(
     session: AsyncSession,
     campaign_id: uuid.UUID,
@@ -185,7 +267,7 @@ async def cancel_campaign(
         if campaign is None:
             raise CampaignNotFoundError("Акция не найдена")
         if campaign.status is not CampaignStatus.SCHEDULED:
-            raise CampaignError("Отменить можно только запланированную акцию")
+            raise CampaignStateError("Отменить можно только запланированную акцию")
         campaign.status = CampaignStatus.CANCELLED
         campaign.cancelled_at = now
         session.add(
@@ -230,42 +312,104 @@ async def dispatch_due_campaigns(session: AsyncSession, now: datetime) -> int:
         launched += 1
 
 
-async def _launch_campaign(
-    session: AsyncSession,
-    campaign: PromotionCampaign,
-    now: datetime,
-) -> None:
-    """Grant the gift lot and queue the broadcast for every customer in one transaction."""
-    expires_at = (
-        expiry_instant(campaign.bonus_valid_until)
-        if campaign.bonus_amount > 0 and campaign.bonus_valid_until is not None
-        else None
-    )
-    if expires_at is not None and expires_at <= now:
-        # The process was down for the whole validity period; never grant dead bonuses.
-        campaign.status = CampaignStatus.CANCELLED
-        campaign.cancelled_at = now
-        session.add(
-            AuditEvent(
-                event_type="promotion_campaign_expired_before_launch",
-                target_type="promotion_campaigns",
-                target_id=str(campaign.id),
-                payload={"title": campaign.title},
+def _gift_expiry(campaign: PromotionCampaign) -> datetime | None:
+    """The instant the campaign's gift lots expire, or ``None`` for a plain broadcast."""
+    if campaign.bonus_amount > 0 and campaign.bonus_valid_until is not None:
+        return expiry_instant(campaign.bonus_valid_until)
+    return None
+
+
+def _recipients_without_gift(
+    campaign_id: uuid.UUID,
+) -> Select[tuple[uuid.UUID, int, LoyaltyAccount]]:
+    """Customers whose account holds no gift lot of this campaign yet, oldest account first."""
+    return (
+        select(Customer.id, Customer.telegram_user_id, LoyaltyAccount)
+        .join(LoyaltyAccount, LoyaltyAccount.customer_id == Customer.id)
+        .where(
+            ~exists().where(
+                BonusTransaction.campaign_id == campaign_id,
+                BonusTransaction.account_id == LoyaltyAccount.id,
             )
         )
-        return
+        .order_by(LoyaltyAccount.id)
+    )
 
+
+def accepts_late_recipients(campaign: PromotionCampaign, now: datetime) -> bool:
+    """A launched gift campaign can still reach newcomers until its bonuses expire."""
+    expires_at = _gift_expiry(campaign)
+    return (
+        campaign.status is CampaignStatus.COMPLETED and expires_at is not None and expires_at > now
+    )
+
+
+async def late_recipients_count(
+    session: AsyncSession, campaign: PromotionCampaign, now: datetime
+) -> int:
+    """How many customers registered after the launch and have not received the gift yet."""
+    if not accepts_late_recipients(campaign, now):
+        return 0
+    query = _recipients_without_gift(campaign.id).order_by(None).subquery()
+    return await session.scalar(select(func.count()).select_from(query)) or 0
+
+
+async def send_campaign_to_late_recipients(
+    session: AsyncSession,
+    campaign_id: uuid.UUID,
+    *,
+    actor_telegram_id: int,
+    now: datetime,
+) -> int:
+    """Give a launched campaign's gift and message to customers who joined after the launch.
+
+    The campaign row lock serialises concurrent presses, and the unique campaign/account index
+    on gift lots means a customer can never receive the same gift twice.
+    """
+    try:
+        campaign = await session.scalar(
+            select(PromotionCampaign).where(PromotionCampaign.id == campaign_id).with_for_update()
+        )
+        if campaign is None:
+            raise CampaignNotFoundError("Акция не найдена")
+        if not accepts_late_recipients(campaign, now):
+            raise CampaignStateError(
+                "Дослать можно только отправленную акцию с бонусами, пока они не сгорели"
+            )
+        rows = (
+            await session.execute(
+                _recipients_without_gift(campaign.id).with_for_update(of=LoyaltyAccount)
+            )
+        ).all()
+        if rows:
+            _deliver_campaign(session, campaign, rows)
+            campaign.recipients_count = (campaign.recipients_count or 0) + len(rows)
+            session.add(
+                AuditEvent(
+                    actor_telegram_id=actor_telegram_id,
+                    event_type="promotion_campaign_sent_to_late_recipients",
+                    target_type="promotion_campaigns",
+                    target_id=str(campaign.id),
+                    payload={"title": campaign.title, "recipients": len(rows)},
+                )
+            )
+        await session.commit()
+    except Exception:
+        await session.rollback()
+        raise
+    return len(rows)
+
+
+def _deliver_campaign(
+    session: AsyncSession,
+    campaign: PromotionCampaign,
+    rows: Sequence[Row[tuple[uuid.UUID, int, LoyaltyAccount]]],
+) -> None:
+    """Grant the gift lot (if any) and queue the message for each locked customer account."""
+    expires_at = _gift_expiry(campaign)
     body = campaign_message(
         campaign.message_text, campaign.bonus_amount, campaign.bonus_valid_until
     )
-    rows = (
-        await session.execute(
-            select(Customer.id, Customer.telegram_user_id, LoyaltyAccount)
-            .join(LoyaltyAccount, LoyaltyAccount.customer_id == Customer.id)
-            .order_by(LoyaltyAccount.id)
-            .with_for_update(of=LoyaltyAccount)
-        )
-    ).all()
     for customer_id, telegram_user_id, account in rows:
         if expires_at is not None:
             account.current_balance = money(account.current_balance + campaign.bonus_amount)
@@ -287,6 +431,38 @@ async def _launch_campaign(
                 dedupe_key=f"campaign:{campaign.id}:{customer_id}",
             )
         )
+
+
+async def _launch_campaign(
+    session: AsyncSession,
+    campaign: PromotionCampaign,
+    now: datetime,
+) -> None:
+    """Grant the gift lot and queue the broadcast for every customer in one transaction."""
+    expires_at = _gift_expiry(campaign)
+    if expires_at is not None and expires_at <= now:
+        # The process was down for the whole validity period; never grant dead bonuses.
+        campaign.status = CampaignStatus.CANCELLED
+        campaign.cancelled_at = now
+        session.add(
+            AuditEvent(
+                event_type="promotion_campaign_expired_before_launch",
+                target_type="promotion_campaigns",
+                target_id=str(campaign.id),
+                payload={"title": campaign.title},
+            )
+        )
+        return
+
+    rows = (
+        await session.execute(
+            select(Customer.id, Customer.telegram_user_id, LoyaltyAccount)
+            .join(LoyaltyAccount, LoyaltyAccount.customer_id == Customer.id)
+            .order_by(LoyaltyAccount.id)
+            .with_for_update(of=LoyaltyAccount)
+        )
+    ).all()
+    _deliver_campaign(session, campaign, rows)
     campaign.status = CampaignStatus.COMPLETED
     campaign.launched_at = now
     campaign.recipients_count = len(rows)
