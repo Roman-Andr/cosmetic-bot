@@ -148,7 +148,12 @@ directly in a bare browser tab.
 - `ENV_FILE=.env docker compose config --quiet` validates the stack configuration; `docker compose up --build` builds and starts all services (postgres, redis, migrate, backend, frontend, caddy, backup).
 
 Set `APP_ENV=development` and `TELEGRAM_MODE=polling` in `.env` for local bot testing with a test
-token; `TELEGRAM_MODE=webhook` is required in production.
+token. Production (`romanandr.ru`) also runs `TELEGRAM_MODE=polling`, with
+`TELEGRAM_PROXY_URL=socks5://hysteria:1080`: Russian network filtering blocks inbound connections
+from Telegram, so webhooks time out and the backend reaches Telegram only outbound through the
+Hysteria sidecar. Never switch production to `webhook` — it silently breaks the bot (see
+`deploy/README.md`). Occasional `TelegramNetworkError: Request timeout` lines while fetching updates
+are proxy/network blips that polling recovers from on its own.
 
 CI (`.github/workflows/ci.yml`) runs backend checks, frontend checks, then a container build job,
 then (on `master` only) publishes attested GHCR images and deploys via SSH to a protected

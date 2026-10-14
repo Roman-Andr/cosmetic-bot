@@ -62,8 +62,9 @@ The Mini App requires Telegram `initData`; it deliberately does not authenticate
 in a regular browser.
 
 For a local test bot, set `APP_ENV=development` and `TELEGRAM_MODE=polling` in
-your ignored `.env`. Polling never registers a public webhook and is intended
-only for a test token. The production configuration must use `TELEGRAM_MODE=webhook`.
+your ignored `.env`. Production also uses polling, through the Hysteria proxy,
+because inbound webhook connections from Telegram are blocked on the production
+network; see [`deploy/README.md`](deploy/README.md).
 
 ## Production preparation
 
