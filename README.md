@@ -63,8 +63,9 @@ The Mini App requires Telegram `initData`; it deliberately does not authenticate
 in a regular browser.
 
 For a local test bot, set `APP_ENV=development` and `TELEGRAM_MODE=polling` in
-your ignored `.env`. Polling never registers a public webhook and is intended
-only for a test token. The production configuration must use `TELEGRAM_MODE=webhook`.
+your ignored `.env`. Production also uses polling, through the Hysteria proxy,
+because inbound webhook connections from Telegram are blocked on the production
+network; see [`deploy/README.md`](deploy/README.md).
 
 ## Production preparation
 
@@ -103,4 +104,6 @@ and backup details.
 - Purchase corrections and returns are intentionally out of scope for the first
   release: confirmed purchases are immutable and do not alter loyalty balances.
 - Launched campaigns cannot be revoked: gift bonuses are ordinary immutable ledger
-  credits. A campaign can only be cancelled while it is still scheduled.
+  credits. A campaign can only be edited or cancelled while it is still scheduled.
+  While its gift bonuses are still valid, a launched campaign can be sent to customers
+  who registered after the launch; each account receives a campaign's gift at most once.

@@ -2,8 +2,11 @@ import { useEffect, useState, type ChangeEvent, type FormEvent } from "react";
 
 import {
   useCampaignPreviewMutation,
+  useCampaignUpdatePreviewMutation,
   useCancelCampaignMutation,
   useCreateCampaignMutation,
+  useSendCampaignToLateRecipientsMutation,
+  useUpdateCampaignMutation,
   useUploadCampaignPhotoMutation,
 } from "../../../entities/admin/api/mutations";
 import { useCampaignsQuery } from "../../../entities/admin/api/queries";
@@ -12,6 +15,7 @@ import type {
   CampaignInput,
   CampaignPreview,
   CampaignStatus,
+  CampaignUpdateInput,
 } from "../../../entities/admin/model/types";
 import {
   errorMessage,
@@ -66,6 +70,21 @@ const emptyForm: CampaignForm = {
   startAt: "",
 };
 
+// A scheduled campaign keeps its stored picture unless the owner removes or replaces it.
+type CampaignPhoto = { kind: "new"; fileId: string; previewUrl: string } | { kind: "kept" };
+
+function formFromCampaign(campaign: Campaign): CampaignForm {
+  const start = minskDateTimeParts(new Date(campaign.starts_at));
+  return {
+    title: campaign.title,
+    message: campaign.owner_text,
+    bonus: String(Number(campaign.bonus_amount)),
+    validUntil: campaign.bonus_valid_until ?? "",
+    startMode: "scheduled",
+    startAt: `${start.date}T${start.time}`,
+  };
+}
+
 function tomorrowMorning(): string {
   const tomorrow = minskDateTimeParts(new Date(Date.now() + 24 * 60 * 60 * 1000));
   return `${tomorrow.date}T10:00`;
@@ -78,6 +97,7 @@ function scheduledInstant(startAt: string): string {
 export function CampaignsPanel({ onNotice }: { onNotice: NoticeHandler }) {
   const campaignsQuery = useCampaignsQuery();
   const [composing, setComposing] = useState(false);
+  const [editing, setEditing] = useState<Campaign | null>(null);
   const campaigns = campaignsQuery.data?.items ?? [];
   const audienceSize = campaignsQuery.data?.audience_size ?? 0;
 
@@ -90,19 +110,23 @@ export function CampaignsPanel({ onNotice }: { onNotice: NoticeHandler }) {
     </section>
 
     <section className={ui("owner-card")}>
-      <div className={ui("view-heading")}><div><p className={ui("overline")} data-overline>ИСТОРИЯ</p><h2>Акции</h2><p>Запланированную акцию можно отменить до старта.</p></div></div>
+      <div className={ui("view-heading")}><div><p className={ui("overline")} data-overline>ИСТОРИЯ</p><h2>Акции</h2><p>Запланированную акцию можно изменить или отменить до старта.</p></div></div>
       {campaignsQuery.isPending ? <div className={ui("modal-loader")}><span className={ui("loader")} />Загружаем акции…</div>
         : campaigns.length === 0 ? <div className={ui("empty-state", "compact-empty")}><span><Icon name="gift" /></span><h3>Акций пока нет</h3><p>Создайте первую — например, подарок ко Дню матери.</p></div>
-        : <ul className={ui("campaign-list")}>{campaigns.map((campaign) => <CampaignCard key={campaign.id} campaign={campaign} onNotice={onNotice} />)}</ul>}
+        : <ul className={ui("campaign-list")}>{campaigns.map((campaign) => <CampaignCard key={campaign.id} campaign={campaign} onEdit={() => setEditing(campaign)} onNotice={onNotice} />)}</ul>}
     </section>
 
     {composing && <CampaignComposer onClose={() => setComposing(false)} onNotice={onNotice} />}
+    {editing && <CampaignComposer key={editing.id} campaign={editing} onClose={() => setEditing(null)} onNotice={onNotice} />}
   </div>;
 }
 
-function CampaignCard({ campaign, onNotice }: { campaign: Campaign; onNotice: NoticeHandler }) {
+function CampaignCard({ campaign, onEdit, onNotice }: { campaign: Campaign; onEdit: () => void; onNotice: NoticeHandler }) {
   const cancelMutation = useCancelCampaignMutation();
+  const lateMutation = useSendCampaignToLateRecipientsMutation();
   const [confirmingCancel, setConfirmingCancel] = useState(false);
+  const [confirmingLate, setConfirmingLate] = useState(false);
+  const late = campaign.late_recipients_count;
   const hasBonus = Number(campaign.bonus_amount) > 0 && campaign.bonus_valid_until !== null;
 
   const cancel = async (): Promise<void> => {
@@ -115,6 +139,19 @@ function CampaignCard({ campaign, onNotice }: { campaign: Campaign; onNotice: No
       onNotice(errorMessage(error));
     } finally {
       setConfirmingCancel(false);
+    }
+  };
+
+  const sendLate = async (): Promise<void> => {
+    try {
+      const { recipients } = await lateMutation.mutateAsync(campaign.id);
+      haptic("success");
+      onNotice(recipients > 0 ? `Акция отправлена новым клиентам: ${recipients}.` : "Все клиенты уже получили эту акцию.", "success");
+    } catch (error) {
+      haptic("error");
+      onNotice(errorMessage(error));
+    } finally {
+      setConfirmingLate(false);
     }
   };
 
@@ -135,23 +172,31 @@ function CampaignCard({ campaign, onNotice }: { campaign: Campaign; onNotice: No
     <div className={ui("campaign-message")}><p>{campaign.message_text}</p></div>
     {campaign.status === "scheduled" && (confirmingCancel
       ? <div className={ui("split-actions")}><button className={ui("secondary-action")} type="button" onClick={() => setConfirmingCancel(false)}>Не отменять</button><button className={ui("primary-action")} type="button" disabled={cancelMutation.isPending} onClick={() => void cancel()}>{cancelMutation.isPending ? "Отменяем…" : "Отменить акцию"}</button></div>
-      : <button className={ui("secondary-action")} type="button" onClick={() => setConfirmingCancel(true)}>Отменить</button>)}
+      : <div className={ui("split-actions")}><button className={ui("secondary-action")} type="button" onClick={() => setConfirmingCancel(true)}>Отменить</button><button className={ui("primary-action")} type="button" onClick={() => { haptic(); onEdit(); }}>Изменить<Icon name="arrow" /></button></div>)}
+    {late > 0 && (confirmingLate
+      ? <><p className={ui("modal-warning")}>Клиентам, которые зарегистрировались после старта ({late}), придёт сообщение акции и <Money value={campaign.bonus_amount} /> бонусов до {campaign.bonus_valid_until && formatCalendarDate(campaign.bonus_valid_until)} включительно. Отменить начисление будет нельзя.</p>
+        <div className={ui("split-actions")}><button className={ui("secondary-action")} type="button" onClick={() => setConfirmingLate(false)}>Не отправлять</button><button className={ui("primary-action")} type="button" disabled={lateMutation.isPending} onClick={() => void sendLate()}>{lateMutation.isPending ? "Отправляем…" : "Отправить"}</button></div></>
+      : <button className={ui("secondary-action")} type="button" onClick={() => { haptic(); setConfirmingLate(true); }}>Отправить новым клиентам ({late})</button>)}
   </li>;
 }
 
-function CampaignComposer({ onClose, onNotice }: { onClose: () => void; onNotice: NoticeHandler }) {
-  const [form, setForm] = useState<CampaignForm>(emptyForm);
-  const [photo, setPhoto] = useState<{ fileId: string; previewUrl: string } | null>(null);
+function CampaignComposer({ campaign, onClose, onNotice }: { campaign?: Campaign; onClose: () => void; onNotice: NoticeHandler }) {
+  const [form, setForm] = useState<CampaignForm>(() => campaign ? formFromCampaign(campaign) : emptyForm);
+  const [photo, setPhoto] = useState<CampaignPhoto | null>(campaign?.has_photo ? { kind: "kept" } : null);
   const [preview, setPreview] = useState<CampaignPreview | null>(null);
   const uploadMutation = useUploadCampaignPhotoMutation();
   const previewMutation = useCampaignPreviewMutation();
+  const updatePreviewMutation = useCampaignUpdatePreviewMutation();
   const createMutation = useCreateCampaignMutation();
+  const updateMutation = useUpdateCampaignMutation();
+  const reviewing = previewMutation.isPending || updatePreviewMutation.isPending;
+  const saving = createMutation.isPending || updateMutation.isPending;
   const hasBonus = Number(form.bonus) > 0;
   const limit = photo ? CAPTION_LIMIT : TEXT_LIMIT;
   const today = minskDateTimeParts(new Date());
   const startDate = form.startMode === "scheduled" && form.startAt ? form.startAt.slice(0, 10) : today.date;
 
-  useEffect(() => () => { if (photo) URL.revokeObjectURL(photo.previewUrl); }, [photo]);
+  useEffect(() => () => { if (photo?.kind === "new") URL.revokeObjectURL(photo.previewUrl); }, [photo]);
 
   const update = (changes: Partial<CampaignForm>): void => {
     setForm((current) => ({ ...current, ...changes }));
@@ -163,7 +208,7 @@ function CampaignComposer({ onClose, onNotice }: { onClose: () => void; onNotice
     if (!file) return;
     try {
       const uploaded = await uploadMutation.mutateAsync(await imageToJpegBase64(file));
-      setPhoto({ fileId: uploaded.photo_file_id, previewUrl: URL.createObjectURL(file) });
+      setPhoto({ kind: "new", fileId: uploaded.photo_file_id, previewUrl: URL.createObjectURL(file) });
       haptic("success");
       onNotice("Картинка загружена — бот прислал её вам в чат для проверки.", "success");
     } catch (error) {
@@ -176,11 +221,13 @@ function CampaignComposer({ onClose, onNotice }: { onClose: () => void; onNotice
   const payload = (): CampaignInput => ({
     title: form.title.trim(),
     message_text: form.message.trim(),
-    photo_file_id: photo?.fileId ?? null,
+    photo_file_id: photo?.kind === "new" ? photo.fileId : null,
     bonus_amount: hasBonus ? Number(form.bonus).toFixed(2) : "0",
     bonus_valid_until: hasBonus ? form.validUntil : null,
     starts_at: form.startMode === "now" ? new Date().toISOString() : scheduledInstant(form.startAt),
   });
+
+  const updatePayload = (): CampaignUpdateInput => ({ ...payload(), keep_photo: photo?.kind === "kept" });
 
   const problem = (): string | null => {
     const bonus = Number(form.bonus);
@@ -198,7 +245,9 @@ function CampaignComposer({ onClose, onNotice }: { onClose: () => void; onNotice
     const issue = problem();
     if (issue) { haptic("error"); onNotice(issue); return; }
     try {
-      setPreview(await previewMutation.mutateAsync(payload()));
+      setPreview(campaign
+        ? await updatePreviewMutation.mutateAsync({ campaignId: campaign.id, payload: updatePayload() })
+        : await previewMutation.mutateAsync(payload()));
       haptic();
     } catch (error) {
       haptic("error");
@@ -208,9 +257,10 @@ function CampaignComposer({ onClose, onNotice }: { onClose: () => void; onNotice
 
   const launch = async (): Promise<void> => {
     try {
-      await createMutation.mutateAsync(payload());
+      if (campaign) await updateMutation.mutateAsync({ campaignId: campaign.id, payload: updatePayload() });
+      else await createMutation.mutateAsync(payload());
       haptic("success");
-      onNotice(form.startMode === "now" ? "Акция запущена — рассылка начнётся в течение минуты." : "Акция запланирована.", "success");
+      onNotice(form.startMode === "now" ? "Акция запущена — рассылка начнётся в течение минуты." : campaign ? "Изменения сохранены." : "Акция запланирована.", "success");
       onClose();
     } catch (error) {
       haptic("error");
@@ -218,7 +268,7 @@ function CampaignComposer({ onClose, onNotice }: { onClose: () => void; onNotice
     }
   };
 
-  return <><Modal title="Новая акция" eyebrow="АКЦИИ И РАССЫЛКИ" onClose={onClose}>
+  return <><Modal title={campaign ? "Изменить акцию" : "Новая акция"} eyebrow="АКЦИИ И РАССЫЛКИ" onClose={onClose}>
     <form className={ui("form")} onSubmit={(event) => void review(event)}>
       <label>Название акции<input className={ui("form-control")} maxLength={100} value={form.title} placeholder="День матери" onChange={(event) => update({ title: event.target.value })} /><span className={ui("field-hint")}>Клиенты увидят его в истории бонусов.</span></label>
 
@@ -226,7 +276,9 @@ function CampaignComposer({ onClose, onNotice }: { onClose: () => void; onNotice
 
       <div className={ui("field-group")}>
         <span>Картинка — необязательно</span>
-        {photo
+        {photo?.kind === "kept"
+          ? <div className={ui("photo-kept")}><Icon name="image" size={18} /><span>Текущая картинка сохранена</span><button className={ui("icon-button")} type="button" aria-label="Убрать картинку" onClick={() => setPhoto(null)}><Icon name="close" size={18} /></button></div>
+          : photo
           ? <div className={ui("photo-preview")}><img src={photo.previewUrl} alt="Картинка акции" /><button className={ui("icon-button")} type="button" aria-label="Убрать картинку" onClick={() => setPhoto(null)}><Icon name="close" size={18} /></button></div>
           : <label className={ui("photo-picker-button")}><input className={ui("visually-hidden")} type="file" accept="image/jpeg,image/png,image/webp" disabled={uploadMutation.isPending} onChange={(event) => void pickPhoto(event)} />{uploadMutation.isPending ? <><span className={ui("loader")} />Загружаем…</> : <><Icon name="image" size={18} />Добавить картинку</>}</label>}
         <span className={ui("field-hint")}>С картинкой Telegram ограничивает текст 1024 символами.</span>
@@ -246,12 +298,13 @@ function CampaignComposer({ onClose, onNotice }: { onClose: () => void; onNotice
         {form.startMode === "scheduled" && <label>Дата и время по Минску<input className={ui("form-control")} type="datetime-local" min={`${today.date}T${today.time}`} value={form.startAt} onChange={(event) => update({ startAt: event.target.value })} /></label>}
       </div>
 
-      <button className={ui("primary-action")} type="submit" disabled={previewMutation.isPending || uploadMutation.isPending}>{previewMutation.isPending ? "Проверяем…" : "Проверить и запустить"}<Icon name="arrow" /></button>
+      <button className={ui("primary-action")} type="submit" disabled={reviewing || uploadMutation.isPending}>{reviewing ? "Проверяем…" : campaign ? "Проверить и сохранить" : "Проверить и запустить"}<Icon name="arrow" /></button>
     </form>
   </Modal>
   {preview && <Modal title="Проверьте акцию" eyebrow="ПЕРЕД ЗАПУСКОМ" onClose={() => setPreview(null)}>
     <section className={ui("campaign-preview")}>
-      {photo && <img src={photo.previewUrl} alt="Картинка акции" />}
+      {photo?.kind === "new" && <img src={photo.previewUrl} alt="Картинка акции" />}
+      {photo?.kind === "kept" && <div className={ui("photo-kept")}><Icon name="image" size={18} /><span>С текущей картинкой</span></div>}
       <p className={ui("campaign-message-full")}>{preview.message_text}</p>
     </section>
     <dl className={ui("receipt-totals")}>
@@ -264,7 +317,7 @@ function CampaignComposer({ onClose, onNotice }: { onClose: () => void; onNotice
     <p className={ui("modal-warning")}>{hasBonus ? "После старта бонусы сразу начисляются всем клиентам — отменить их будет нельзя." : "После старта сообщение уйдёт всем клиентам — отменить рассылку будет нельзя."}</p>
     <div className={ui("split-actions")}>
       <button className={ui("secondary-action")} type="button" onClick={() => setPreview(null)}>Изменить</button>
-      <button className={ui("primary-action")} type="button" disabled={createMutation.isPending} onClick={() => void launch()}>{createMutation.isPending ? "Сохраняем…" : form.startMode === "now" ? "Запустить" : "Запланировать"}<Icon name="check" /></button>
+      <button className={ui("primary-action")} type="button" disabled={saving} onClick={() => void launch()}>{saving ? "Сохраняем…" : form.startMode === "now" ? "Запустить" : campaign ? "Сохранить" : "Запланировать"}<Icon name="check" /></button>
     </div>
   </Modal>}
   </>;

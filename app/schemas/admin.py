@@ -4,7 +4,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.models import AdminRole, CampaignStatus, CashbackSource
 
@@ -167,6 +167,18 @@ class CampaignCreateRequest(BaseModel):
         return stripped
 
 
+class CampaignUpdateRequest(CampaignCreateRequest):
+    """New values for a scheduled campaign; ``keep_photo`` reuses the picture already stored."""
+
+    keep_photo: bool = False
+
+    @model_validator(mode="after")
+    def photo_is_kept_or_replaced(self) -> "CampaignUpdateRequest":
+        if self.keep_photo and self.photo_file_id is not None:
+            raise ValueError("Either keep the current photo or send a new one, not both")
+        return self
+
+
 class CampaignPreviewResponse(BaseModel):
     """The exact message customers will receive and the size of the audience."""
 
@@ -181,15 +193,23 @@ class CampaignResponse(BaseModel):
     id: UUID
     title: str
     message_text: str
+    owner_text: str
     has_photo: bool
     bonus_amount: Decimal
     bonus_valid_until: date | None
     starts_at: datetime
     status: CampaignStatus
     recipients_count: int | None
+    late_recipients_count: int
     launched_at: datetime | None
     cancelled_at: datetime | None
     created_at: datetime
+
+
+class CampaignLateDeliveryResponse(BaseModel):
+    """How many customers who joined after the launch have just been sent the campaign."""
+
+    recipients: int
 
 
 class CampaignListResponse(BaseModel):

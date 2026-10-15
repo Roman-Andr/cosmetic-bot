@@ -10,6 +10,7 @@ from uuid import UUID
 from aiogram.types import BufferedInputFile
 from fastapi import APIRouter, HTTPException, Query, Response, status
 from sqlalchemy import func, or_, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import (
     BotDependency,
@@ -35,11 +36,13 @@ from app.schemas.admin import (
     AdminUserResponse,
     BuyerLookupResponse,
     CampaignCreateRequest,
+    CampaignLateDeliveryResponse,
     CampaignListResponse,
     CampaignPhotoUploadRequest,
     CampaignPhotoUploadResponse,
     CampaignPreviewResponse,
     CampaignResponse,
+    CampaignUpdateRequest,
     CustomerDetailResponse,
     CustomerSearchResponse,
     ProductResponse,
@@ -55,12 +58,17 @@ from app.services.campaigns import (
     CampaignDraft,
     CampaignError,
     CampaignNotFoundError,
+    CampaignStateError,
     audience_size,
     campaign_message,
     cancel_campaign,
     create_campaign,
     decode_campaign_photo,
+    edited_campaign_draft,
+    late_recipients_count,
     list_campaigns,
+    send_campaign_to_late_recipients,
+    update_campaign,
     validate_campaign,
 )
 from app.services.customer_data import mask_phone
@@ -499,7 +507,7 @@ async def export_purchases(
     )
 
 
-def campaign_response(campaign: PromotionCampaign) -> CampaignResponse:
+def campaign_response(campaign: PromotionCampaign, *, late_recipients: int = 0) -> CampaignResponse:
     """Hide Telegram's internal file identifier from the dashboard payload."""
     return CampaignResponse(
         id=campaign.id,
@@ -507,12 +515,14 @@ def campaign_response(campaign: PromotionCampaign) -> CampaignResponse:
         message_text=campaign_message(
             campaign.message_text, campaign.bonus_amount, campaign.bonus_valid_until
         ),
+        owner_text=campaign.message_text,
         has_photo=campaign.photo_file_id is not None,
         bonus_amount=campaign.bonus_amount,
         bonus_valid_until=campaign.bonus_valid_until,
         starts_at=campaign.starts_at,
         status=campaign.status,
         recipients_count=campaign.recipients_count,
+        late_recipients_count=late_recipients,
         launched_at=campaign.launched_at,
         cancelled_at=campaign.cancelled_at,
         created_at=campaign.created_at,
@@ -534,20 +544,20 @@ def campaign_draft(payload: CampaignCreateRequest) -> CampaignDraft:
 @router.get("/campaigns", response_model=CampaignListResponse)
 async def get_campaigns(session: SessionDependency, _: OwnerDependency) -> CampaignListResponse:
     """List recent campaigns with the audience a new campaign would reach."""
+    now = datetime.now(UTC)
     return CampaignListResponse(
         audience_size=await audience_size(session),
-        items=[campaign_response(campaign) for campaign in await list_campaigns(session)],
+        items=[
+            campaign_response(
+                campaign, late_recipients=await late_recipients_count(session, campaign, now)
+            )
+            for campaign in await list_campaigns(session)
+        ],
     )
 
 
-@router.post("/campaigns/preview", response_model=CampaignPreviewResponse)
-async def preview_campaign(
-    payload: CampaignCreateRequest,
-    session: SessionDependency,
-    _: OwnerDependency,
-) -> CampaignPreviewResponse:
+async def campaign_preview(session: AsyncSession, draft: CampaignDraft) -> CampaignPreviewResponse:
     """Validate a draft and show the exact customer message before the irreversible launch."""
-    draft = campaign_draft(payload)
     try:
         validate_campaign(draft, datetime.now(UTC))
     except CampaignError as exc:
@@ -562,6 +572,35 @@ async def preview_campaign(
         audience_size=recipients,
         total_bonus=money(draft.bonus_amount * recipients),
     )
+
+
+@router.post("/campaigns/preview", response_model=CampaignPreviewResponse)
+async def preview_campaign(
+    payload: CampaignCreateRequest,
+    session: SessionDependency,
+    _: OwnerDependency,
+) -> CampaignPreviewResponse:
+    """Preview a new campaign."""
+    return await campaign_preview(session, campaign_draft(payload))
+
+
+@router.post("/campaigns/{campaign_id}/preview", response_model=CampaignPreviewResponse)
+async def preview_campaign_update(
+    campaign_id: UUID,
+    payload: CampaignUpdateRequest,
+    session: SessionDependency,
+    _: OwnerDependency,
+) -> CampaignPreviewResponse:
+    """Preview the edits to a scheduled campaign, including the picture it already has."""
+    try:
+        _campaign, draft = await edited_campaign_draft(
+            session, campaign_id, campaign_draft(payload), keep_photo=payload.keep_photo
+        )
+    except CampaignNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except CampaignStateError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    return await campaign_preview(session, draft)
 
 
 @router.post(
@@ -587,6 +626,57 @@ async def schedule_campaign(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
         ) from exc
     return campaign_response(campaign)
+
+
+@router.put("/campaigns/{campaign_id}", response_model=CampaignResponse)
+async def edit_scheduled_campaign(
+    campaign_id: UUID,
+    payload: CampaignUpdateRequest,
+    session: SessionDependency,
+    owner: OwnerDependency,
+) -> CampaignResponse:
+    """Edit a campaign before launch; once it has started, its gifts are immutable."""
+    try:
+        campaign = await update_campaign(
+            session,
+            campaign_id,
+            campaign_draft(payload),
+            keep_photo=payload.keep_photo,
+            actor_telegram_id=owner.telegram_user_id,
+            now=datetime.now(UTC),
+        )
+    except CampaignNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except CampaignStateError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except CampaignError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
+    return campaign_response(campaign)
+
+
+@router.post(
+    "/campaigns/{campaign_id}/late-recipients", response_model=CampaignLateDeliveryResponse
+)
+async def send_to_late_recipients(
+    campaign_id: UUID,
+    session: SessionDependency,
+    owner: OwnerDependency,
+) -> CampaignLateDeliveryResponse:
+    """Send a launched gift campaign to customers who registered after it started."""
+    try:
+        recipients = await send_campaign_to_late_recipients(
+            session,
+            campaign_id,
+            actor_telegram_id=owner.telegram_user_id,
+            now=datetime.now(UTC),
+        )
+    except CampaignNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except CampaignStateError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    return CampaignLateDeliveryResponse(recipients=recipients)
 
 
 @router.post("/campaigns/{campaign_id}/cancel", response_model=CampaignResponse)
